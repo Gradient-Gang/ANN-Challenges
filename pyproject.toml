@@ -4,6 +4,9 @@ version = "0.1.0"
 description = ""
 authors = [
     { name = "Paolo Ginefra", email = "ginefra.paolo@gmail.com" },
+    { name = "Martina Missana"},
+    { name = "Lorenzo Pettenuzzo"},
+    { name = "Matteo Pasqual"},
 ]
 readme = "README.md"
 license = "MIT"
