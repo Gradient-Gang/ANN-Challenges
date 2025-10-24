@@ -4,9 +4,9 @@ version = "0.1.0"
 description = ""
 authors = [
     { name = "Paolo Ginefra", email = "ginefra.paolo@gmail.com" },
-    { name = "Martina Missana"},
-    { name = "Lorenzo Pettenuzzo"},
-    { name = "Matteo Pasqual", email = "matteoromilio.pasqual@mail.polimi.it"},
+    { name = "Martina Missana", email = "martina.missana@mail.polimi.it" },
+    { name = "Lorenzo Pettenuzzo" },
+    { name = "Matteo Pasqual", email = "matteoromilio.pasqual@mail.polimi.it" },
 ]
 readme = "README.md"
 license = "MIT"
