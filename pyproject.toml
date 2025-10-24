@@ -5,7 +5,7 @@ description = ""
 authors = [
     { name = "Paolo Ginefra", email = "ginefra.paolo@gmail.com" },
     { name = "Martina Missana", email = "martina.missana@mail.polimi.it" },
-    { name = "Lorenzo Pettenuzzo" },
+    { name = "Lorenzo Pettenuzzo", email = "lorenzo.pettenuzzo@mail.polimi.it" },
     { name = "Matteo Pasqual", email = "matteoromilio.pasqual@mail.polimi.it" },
 ]
 readme = "README.md"
