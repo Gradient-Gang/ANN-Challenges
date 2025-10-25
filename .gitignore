@@ -4,3 +4,9 @@
 **/.pytest_cache
 **/__pycache__
 **/*.egg-info
+
+# Ignore dataset folder
+dataset/
+
+# Ignore lightning logs
+lightning_logs/
