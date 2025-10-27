@@ -1,0 +1,51 @@
+\section{Experiments}
+    For your experiments, you might want to present your results in tables. Here's an example of a wide table comparing different models:
+
+    \begin{table*}[t]
+        \centering
+        \setlength{\tabcolsep}{3pt}
+        \caption{An example of wide table. Best results are highlighted in \textbf{bold}.}
+        \begin{tabularx}{\textwidth}{lYYYc}
+            \toprule
+            Model & Accuracy & Precision & Recall & ROC AUC\\
+            \midrule
+            VGG18         &  72.20 $\pm$ 3.06    &   94.95 $\pm$ 0.52     &   86.95 $\pm$ 0.55    &   80.16 $\pm$ 0.81\\
+            Custom Model        &  27.71 $\pm$ 3.19    &   75.70 $\pm$ 1.07     &   55.75 $\pm$ 2.16    &   36.60 $\pm$ 1.26\\
+            ResNet18    &  \textbf{89.24 $\pm$ 2.38}    &   \textbf{95.54 $\pm$ 0.49}     &   \textbf{93.43 $\pm$ 1.30}    &   \textbf{91.68 $\pm$ 0.71}\\
+            \bottomrule
+        \end{tabularx}
+        \label{tab:Performance}
+    \end{table*}
+
+    \noindent For more specific measurements, you might use a narrower table:
+
+    \begin{table}[H]
+        \centering
+        \setlength{\tabcolsep}{3pt}
+        \caption{An example of table. Best results may be highlighted in \textbf{bold}.}
+        \begin{tabularx}{\linewidth}{lY}
+            \toprule
+            Time [$\mu$s] & Distance [mm]\\
+            \midrule
+            22$\pm$4 & 8$\pm$1\\
+            17$\pm$3 & 7$\pm$1\\
+            15$\pm$3 & 6$\pm$1\\
+            13$\pm$2 & 5$\pm$1\\
+            10$\pm$2 & 4$\pm$1\\
+            8$\pm$2 & 3$\pm$1\\
+            5$\pm$1 & 2$\pm$1\\
+            37$\pm$1 & 1$\pm$1\\
+            \bottomrule
+        \end{tabularx}
+        \label{tb:Measurements}
+    \end{table}
+
+    \noindent You can also include figures to visualise your results:
+    \begin{figure}[H]
+        \centering
+        \includegraphics[width=0.75\linewidth]{Deliverables/Report1/img/random.jpeg}
+        \caption{Example figure showing [describe what the figure shows]}
+        \label{fig:results}
+    \end{figure}
+
+    \noindent Reference figures using like:``As shown in Figure~\ref{fig:results}..."
