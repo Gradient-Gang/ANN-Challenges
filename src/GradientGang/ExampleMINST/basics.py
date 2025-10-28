@@ -12,6 +12,8 @@ import pytorch_lightning as pl
 import torchmetrics
 from torchmetrics import Metric
 
+print("PyTorch Lightning Version:", pl.__version__)
+
 # Custom Accuracy Metric
 class MyAccuracy(Metric):
     def __init__(self):
@@ -97,7 +99,7 @@ input_size = 28 * 28
 num_classes = 10
 learning_rate = 0.001
 batch_size = 64
-num_epochs = 10
+num_epochs = 3
 
 #dataset
 entire_dataset = datasets.MNIST(root='dataset/', train=True, transform=transforms.ToTensor(), download=True)
@@ -112,7 +114,7 @@ test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=Fa
 model = NN(input_size=input_size, num_classes=num_classes).to(device)
 
 #trainer
-trainer = pl.Trainer(min_epochs=num_epochs, max_epochs=num_epochs, precision=16)
+trainer = pl.Trainer(min_epochs=num_epochs, max_epochs=num_epochs)
 trainer.fit(model, train_loader, val_loader)
 trainer.validate(model, val_loader)
 trainer.test(model, test_loader)

@@ -180,8 +180,6 @@ if device.type == 'cuda':
     num_workers = torch.cuda.device_count()
 else:
     num_workers = 0
-# torch.backends.cuda.matmul.fp32_precision = "tf32"
-# torch.backends.cudnn.conv.fp32_precision = "tf32"
 
 # hyperparameters
 input_size = 28 * 28
