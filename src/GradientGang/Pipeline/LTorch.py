@@ -11,7 +11,7 @@ class LTorch (L.LightningModule):
 
         # TODO: add check for types (only nn.Module allowed)
         for c in components:
-            self.arch.append(componentsDict[c[0]](**(c[1])))   # parameters are a dictionary decompressed
+            self.arch.append(componentsDict[c["name"]](**(c["values"])))   # parameters are a dictionary decompressed
     
         self.loss = loss
 
