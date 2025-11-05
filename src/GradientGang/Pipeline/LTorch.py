@@ -14,3 +14,8 @@ class LTorch (L.LightningModule):
     def forward(self, x):
         return self.arch.forward(x)
 
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_pred = self.arch(x)
+
+        return self.loss(y_pred, y)
