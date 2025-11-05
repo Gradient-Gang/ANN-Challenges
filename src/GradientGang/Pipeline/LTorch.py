@@ -23,3 +23,6 @@ class LTorch (L.LightningModule):
         y_pred = self.arch(x)
         # TODO: add epoch logging, maybe must be handled by Optuna
         return self.loss(y_pred, y)
+    
+    def validation_step(self, batch, batch_idx):
+        pass
