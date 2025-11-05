@@ -10,3 +10,7 @@ class LTorch (L.LightningModule):
 
         for c in components:
             self.arch.append(componentsDict[c[0]](**(c[1])))   # parameters are a dictionary decompressed
+    
+    def forward(self, x):
+        return self.arch.forward(x)
+
