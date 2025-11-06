@@ -1,28 +1,24 @@
-import torch
-import torch.nn as nn
+import abc
 import lightning as L
-import types
 
-class LTorch (L.LightningModule):
-    def __init__(self, components: list, componentsDict: dict, loss: types.FunctionType):
-        super().__init__()
 
-        self.arch = nn.Sequential()
+class AbstractLTorch (abc.ABC, L.LightningModule):
+    @abc.abstractmethod
+    def __init__(self, architecture: dict):
+        pass
 
-        # TODO: add check for types (only nn.Module allowed)
-        for c in components:
-            self.arch.append(componentsDict[c["name"]](**(c["values"])))   # parameters are a dictionary decompressed
-    
-        self.loss = loss
+    @abc.abstractmethod
+    def __init__(self, architecture_path: str):
+        pass
 
+    @abc.abstractmethod
     def forward(self, x):
-        return self.arch.forward(x)
+        pass
 
+    @abc.abstractmethod
     def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_pred = self.arch(x)
-        # TODO: add epoch logging, maybe must be handled by Optuna
-        return self.loss(y_pred, y)
+        pass
     
+    @abc.abstractmethod
     def validation_step(self, batch, batch_idx):
         pass
