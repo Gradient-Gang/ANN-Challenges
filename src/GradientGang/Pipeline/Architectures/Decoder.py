@@ -1,5 +1,5 @@
 import torch.nn as nn
-from .ParameterInterpreter import ParameterInterpreter
+from ..Utils.ParameterInterpreter import ParameterInterpreter
 
 
 class Decoder(nn.Module):
