@@ -27,7 +27,7 @@ class OptunaOptimizer (Optimizer.Optimizer):
     
         return vals
 
-    def optimize(self, architecture_builder: types.FunctionType, params: dict, n_trials: int = 10) -> optuna.study:
+    def optimize(self, architecture_builder: types.FunctionType, params: dict, n_trials: int = None) -> optuna.study:
         self.build_architecture = architecture_builder
         self.params = params
 
