@@ -29,7 +29,7 @@ class OptunaOptimizer (Optimizer.Optimizer):
         self.build_architecture = architecture_builder
         self.params = params
 
-        study = optuna.create_study()
+        study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0))
         study.optimize(self.objective, n_trials=n_trials)
 
         return study
