@@ -64,6 +64,26 @@ def test_getParams_int(optimizer, mock_trial, sample_params):
     assert isinstance(params["int_param"], int)
     assert sample_params["int_param"]["low"] <= params["int_param"] <= sample_params["int_param"]["high"]
 
+def test_getParams_value_type(optimizer, mock_trial):
+    value_params = {
+        "constant_param": {
+            "type": "value",
+            "value": 42
+        },
+        "constant_str": {
+            "type": "value",
+            "value": "test_string"
+        },
+        "constant_float": {
+            "type": "value",
+            "value": 3.14
+        }
+    }
+    params = optimizer.getParams(value_params, mock_trial)
+    assert params["constant_param"] == 42
+    assert params["constant_str"] == "test_string"
+    assert params["constant_float"] == 3.14
+
 def test_getParams_invalid_type(optimizer, mock_trial):
     invalid_params = {
         "invalid_param": {
