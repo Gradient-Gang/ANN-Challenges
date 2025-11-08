@@ -24,7 +24,7 @@ class Pipeline (abc.ABC):
 
     # might build from arch, or restart from checkpoint?
     @abc.abstractmethod
-    def build_architecture(self, arch: dict, params: dict) -> LTorch.AbstractLTorch:
+    def build_architecture(self, params: dict) -> L.LightningModule:
         pass
 
     def getParams(self, params: dict, trial: optuna.trial.BaseTrial):
