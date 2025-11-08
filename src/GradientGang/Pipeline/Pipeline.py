@@ -7,7 +7,7 @@ hyper.yaml
 """
 
 import lightning as L
-from ..Optimizer.Optimizer import Optimizer 
+from .Optimizer.Optimizer import Optimizer 
 import yaml
 
 class Pipeline:
