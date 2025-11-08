@@ -20,6 +20,8 @@ class OptunaOptimizer (Optimizer.Optimizer):
                 if "step" in params[k]:
                     kwargs["step"] = params[k]["step"]
                 vals[k] = trial.suggest_int(k, params[k]["low"], params[k]["high"], **kwargs)
+            elif params[k]["type"] == "value":
+                vals[k] = params[k]["value"]
             else:
                 raise TypeError("Pipeline.getParams: Invalid type for parameter {} ({})".format(k, params[k]["type"]))
     
