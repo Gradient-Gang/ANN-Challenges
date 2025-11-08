@@ -1,5 +1,6 @@
 import torch.nn as nn
 from ..Utils.ParameterInterpreter import ParameterInterpreter
+import torch
 
 
 class Decoder(nn.Module):
@@ -18,6 +19,9 @@ class Decoder(nn.Module):
             "Unflatten": nn.Unflatten,
             "Sigmoid": nn.Sigmoid,
             "Tanh": nn.Tanh,
+            "LSTM": nn.LSTM,
+            "GRU": nn.GRU,
+            "RNN": nn.RNN,
         },
         requiredParams={
             "activation_function": ["ReLU", "GELU", "LeakyReLU"],
@@ -71,7 +75,29 @@ class Decoder(nn.Module):
                                                                   "dilation": int,
                                                                   "padding_mode": str,
                                                                   "device": str,
-                                                                  "dtype": str}}]
+                                                                  "dtype": str}},
+                           {"name": "LSTM", "params": {"input_size": int,
+                                                       "hidden_size": int,
+                                                       "num_layers": int,
+                                                       "bias": bool,
+                                                       "batch_first": bool,
+                                                       "dropout": float,
+                                                       "bidirectional": bool}},
+                           {"name": "GRU", "params": {"input_size": int,
+                                                      "hidden_size": int,
+                                                      "num_layers": int,
+                                                      "bias": bool,
+                                                      "batch_first": bool,
+                                                      "dropout": float,
+                                                      "bidirectional": bool}},
+                           {"name": "RNN", "params": {"input_size": int,
+                                                      "hidden_size": int,
+                                                      "num_layers": int,
+                                                      "nonlinearity": str,
+                                                      "bias": bool,
+                                                      "batch_first": bool,
+                                                      "dropout": float,
+                                                      "bidirectional": bool}}]
         }
     )
 
@@ -123,6 +149,9 @@ class Decoder(nn.Module):
         super().__init__()
         self.decoderInterpreter.checkRequiredParams(params)
 
+        # Store params for forward method
+        self.params = params
+
         c_hid = base_channel_size
 
         # Get the activation function class (same for all layers except possibly the last)
@@ -153,4 +182,22 @@ class Decoder(nn.Module):
         self.net = nn.Sequential(*modules)
 
     def forward(self, x):
-        return self.net(x)
+        # Check if any recurrent layers (RNN, GRU, LSTM) are present
+        has_recurrent = any(
+            layer_params["name"] in ["LSTM", "GRU", "RNN"]
+            for layer_params in self.params["layer_type"]
+        )
+
+        if has_recurrent:
+            # For recurrent layers, handle the tuple output
+            for layer in self.net:
+                if isinstance(layer, (nn.LSTM, nn.GRU, nn.RNN)):
+                    # RNN layers return (output, hidden_state) or (output, (hidden, cell))
+                    # We take the output and continue
+                    x, _ = layer(x)
+                else:
+                    x = layer(x)
+            return x
+        else:
+            # Standard feedforward processing
+            return self.net(x)

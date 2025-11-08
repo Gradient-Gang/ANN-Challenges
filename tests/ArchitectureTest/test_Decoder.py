@@ -1177,3 +1177,619 @@ class TestDecoder:
         # Check sigmoid range
         assert output.min().item() >= 0.0
         assert output.max().item() <= 1.0
+
+    # ========== LSTM/GRU/RNN Tests ==========
+
+    @pytest.fixture
+    def lstm_params(self):
+        """LSTM layer decoder parameters."""
+        return {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 2,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def gru_params(self):
+        """GRU layer decoder parameters."""
+        return {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "GRU",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def rnn_params(self):
+        """RNN layer decoder parameters."""
+        return {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "RNN",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "nonlinearity": "tanh",
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def mixed_lstm_linear_params(self):
+        """Mixed architecture with Linear and LSTM layers."""
+        return {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 64,
+                        "out_features": 128,
+                    }
+                },
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 128,
+                        "hidden_size": 256,
+                        "num_layers": 2,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.2,
+                        "bidirectional": False
+                    }
+                },
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 256,
+                        "out_features": 784,
+                    }
+                }
+            ]
+        }
+
+    def test_decoder_lstm_initialization(self, lstm_params):
+        """Test that decoder initializes correctly with LSTM layer."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+        assert isinstance(decoder, nn.Module)
+        assert hasattr(decoder, 'net')
+        assert isinstance(decoder.net, nn.Sequential)
+
+        # Check LSTM layer exists
+        has_lstm = any(isinstance(m, nn.LSTM) for m in decoder.net.modules())
+        assert has_lstm, "LSTM layer not found in decoder"
+
+    def test_decoder_gru_initialization(self, gru_params):
+        """Test that decoder initializes correctly with GRU layer."""
+        decoder = Decoder(
+            params=gru_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # Check GRU layer exists
+        has_gru = any(isinstance(m, nn.GRU) for m in decoder.net.modules())
+        assert has_gru, "GRU layer not found in decoder"
+
+    def test_decoder_rnn_initialization(self, rnn_params):
+        """Test that decoder initializes correctly with RNN layer."""
+        decoder = Decoder(
+            params=rnn_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # Check RNN layer exists
+        has_rnn = any(isinstance(m, nn.RNN) for m in decoder.net.modules())
+        assert has_rnn, "RNN layer not found in decoder"
+
+    def test_decoder_lstm_forward(self, lstm_params):
+        """Test forward pass with LSTM layer."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # LSTM expects (batch_size, sequence_length, input_size) when batch_first=True
+        x = torch.randn(4, 10, 64)  # batch=4, seq_len=10, input_size=64
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape[0] == 4  # batch size preserved
+        assert output.shape[1] == 10  # sequence length preserved
+        assert output.shape[2] == 128  # hidden_size
+
+    def test_decoder_gru_forward(self, gru_params):
+        """Test forward pass with GRU layer."""
+        decoder = Decoder(
+            params=gru_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # GRU expects (batch_size, sequence_length, input_size) when batch_first=True
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape[0] == 4
+        assert output.shape[1] == 10
+        assert output.shape[2] == 128
+
+    def test_decoder_rnn_forward(self, rnn_params):
+        """Test forward pass with RNN layer."""
+        decoder = Decoder(
+            params=rnn_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # RNN expects (batch_size, sequence_length, input_size) when batch_first=True
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape[0] == 4
+        assert output.shape[1] == 10
+        assert output.shape[2] == 128
+
+    def test_decoder_mixed_lstm_linear_forward(self, mixed_lstm_linear_params):
+        """Test forward pass with mixed Linear and LSTM layers."""
+        decoder = Decoder(
+            params=mixed_lstm_linear_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # First Linear expects (batch, seq, features), LSTM processes it, then another Linear
+        x = torch.randn(2, 20, 64)  # batch=2, seq=20, features=64
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape[0] == 2  # batch size preserved
+        assert output.shape[1] == 20  # sequence length preserved
+        assert output.shape[2] == 784  # final Linear output
+
+    def test_decoder_lstm_bidirectional(self):
+        """Test LSTM with bidirectional=True."""
+        params = {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": True
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        # Bidirectional doubles the hidden size
+        assert output.shape[2] == 256  # 128 * 2 for bidirectional
+
+    def test_decoder_gru_bidirectional(self):
+        """Test GRU with bidirectional=True."""
+        params = {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "GRU",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": True
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        # Bidirectional doubles the hidden size
+        assert output.shape[2] == 256  # 128 * 2 for bidirectional
+
+    def test_decoder_rnn_nonlinearity_options(self):
+        """Test RNN with different nonlinearity options."""
+        nonlinearities = ["tanh", "relu"]
+
+        for nonlinearity in nonlinearities:
+            params = {
+                "activation_function": "ReLU",
+                "layer_type": [
+                    {
+                        "name": "RNN",
+                        "params": {
+                            "input_size": 64,
+                            "hidden_size": 128,
+                            "num_layers": 1,
+                            "nonlinearity": nonlinearity,
+                            "bias": True,
+                            "batch_first": True,
+                            "dropout": 0.0,
+                            "bidirectional": False
+                        }
+                    }
+                ]
+            }
+
+            decoder = Decoder(
+                params=params,
+                latent_dim=128,
+                base_channel_size=64,
+                num_output_channels=1
+            )
+
+            x = torch.randn(4, 10, 64)
+            output = decoder.forward(x)
+            assert isinstance(output, torch.Tensor)
+
+    def test_decoder_lstm_multiple_layers(self):
+        """Test LSTM with multiple num_layers."""
+        params = {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 3,  # Multiple stacked LSTM layers
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape == (4, 10, 128)
+
+    def test_decoder_lstm_with_dropout(self):
+        """Test LSTM with dropout parameter."""
+        params = {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 2,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.5,  # Apply dropout between LSTM layers
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+
+    def test_decoder_recurrent_gradient_flow(self, lstm_params):
+        """Test that gradients flow through recurrent layers."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64, requires_grad=True)
+        output = decoder.forward(x)
+        loss = output.sum()
+        loss.backward()
+
+        assert x.grad is not None
+        assert not torch.allclose(x.grad, torch.zeros_like(x.grad))
+
+    def test_decoder_recurrent_eval_mode(self, lstm_params):
+        """Test recurrent decoder in evaluation mode."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        decoder.eval()
+        x = torch.randn(4, 10, 64)
+
+        with torch.no_grad():
+            output1 = decoder.forward(x)
+            output2 = decoder.forward(x)
+
+        # In eval mode with same input, output should be identical
+        assert torch.allclose(output1, output2)
+
+    def test_decoder_has_params_attribute(self, lstm_params):
+        """Test that decoder stores params attribute for recurrent layer detection."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        assert hasattr(decoder, 'params')
+        assert decoder.params == lstm_params
+
+    def test_decoder_recurrent_detection_logic(self, lstm_params):
+        """Test that forward method correctly detects recurrent layers."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+
+        # Should not raise any errors
+        output = decoder.forward(x)
+        assert isinstance(output, torch.Tensor)
+
+    def test_decoder_lstm_batch_first_false(self):
+        """Test LSTM with batch_first=False."""
+        params = {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": False,  # sequence_length first
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        # Input shape: (sequence_length, batch_size, input_size)
+        x = torch.randn(10, 4, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape == (10, 4, 128)  # seq_len, batch, hidden
+
+    def test_decoder_multiple_recurrent_layers(self):
+        """Test decoder with multiple different recurrent layer types."""
+        params = {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                },
+                {
+                    "name": "GRU",
+                    "params": {
+                        "input_size": 128,
+                        "hidden_size": 256,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        assert output.shape == (4, 10, 256)  # Final GRU hidden size
+
+    def test_decoder_recurrent_parameter_count(self, lstm_params):
+        """Test that recurrent decoder has learnable parameters."""
+        decoder = Decoder(
+            params=lstm_params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        param_count = sum(p.numel()
+                          for p in decoder.parameters() if p.requires_grad)
+        assert param_count > 0
+
+    def test_decoder_lstm_without_bias(self):
+        """Test LSTM with bias=False."""
+        params = {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": False,  # No bias terms
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+
+        # Check that LSTM was created with bias=False
+        for module in decoder.net.modules():
+            if isinstance(module, nn.LSTM):
+                assert module.bias == False
+
+    def test_decoder_lstm_with_output_activation(self):
+        """Test LSTM decoder with output activation."""
+        params = {
+            "activation_function": "ReLU",
+            "output_activation": "Sigmoid",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "bias": True,
+                        "batch_first": True,
+                        "dropout": 0.0,
+                        "bidirectional": False
+                    }
+                },
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 128,
+                        "out_features": 64,
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        assert isinstance(output, torch.Tensor)
+        # Check sigmoid range
+        assert output.min() >= 0.0
+        assert output.max() <= 1.0
