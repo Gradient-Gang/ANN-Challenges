@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+import sklearn
 
 class PreProcessing:
     def __init__(self, path_params: str):
@@ -20,8 +21,16 @@ class PreProcessing:
         self.name_test_file = self.params.get("name_test_file", "test.csv")
         self.name_train_labels_file = self.params.get("name_train_labels_file", "train_labels.csv")
 
-        self.drop_all = self.params.get("drop_all", False)
-        self.one_hot_encode = self.params.get("one_hot_encode", False)
+        self.drop_all_is_pirate = self.params.get("drop_all_is_pirate", False)
+        self.one_hot_encode_is_pirate = self.params.get("one_hot_encode", False)
+
+        self.pca = self.params.get("pca", False)
+        if self.pca:
+            self.explained_variance = self.params.get("explained_variance", 0.95)
+
+        self.feature_selection = self.params.get("feature_selection", False)
+        if self.feature_selection:
+            self.feature_selected = self.params.get("feature_selected", None)
 
         self.verbose = self.params.get("verbose", True)
 
@@ -49,7 +58,7 @@ class PreProcessing:
     def handle_inspirate_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Handle inspirate features by dropping or encoding them."""
-        if self.drop_all:
+        if self.drop_all_is_pirate:
             return data.drop(columns=["n_legs", "n_hands", "n_eyes"])
         
         
@@ -57,7 +66,7 @@ class PreProcessing:
         data["number"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
         data = data.drop(columns=["n_legs", "n_hands", "n_eyes"])
 
-        if self.one_hot_encode:
+        if self.one_hot_encode_is_pirate:
             data = pd.get_dummies(data, columns=["n_eyes"], drop_first=False)
             return data
         else:
@@ -113,6 +122,24 @@ class PreProcessing:
         plt.tight_layout()
         plt.show()
                 
+    def pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Apply PCA to reduce dimensionality of the data.
+        """
+
+        pca = sklearn.decomposition.PCA(n_components=self.explained_variance)
+        training_data = pca.fit_transform(training_data)
+        test_data = pca.transform(test_data)
+
+        return training_data, test_data
+
+    def feature_selection(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Select specific features from the data.
+        """
+        training_data, test_data = training_data[self.feature_selected], test_data[self.feature_selected]
+        return training_data, test_data
+
     def preprocess(self):
         """
         Main preprocessing function to load, process, and save data.
@@ -154,6 +181,26 @@ class PreProcessing:
 
         if self.verbose:
             self.plot_one_time_series(train_data, number=3)
+
+        if self.pca:
+            try:
+                train_data, test_data = self.pca(train_data, test_data)
+            except Exception as e:
+                print(f"Error applying PCA: {e}")
+                return
+            print("PCA applied successfully.")
+        else:
+            print("PCA not applied.")
+
+        if self.feature_selection:
+            try:
+                train_data, test_data = self.feature_selection(train_data, test_data)
+            except Exception as e:
+                print(f"Error applying feature selection: {e}")
+                return
+            print("Feature selection applied successfully.")
+        else:
+            print("Feature selection not applied.")
 
         try:
             self.save_data(train_data, self.name_train_file)
