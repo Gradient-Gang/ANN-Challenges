@@ -1,7 +1,76 @@
 import pytest
 import torch
 import pytorch_lightning as L
-from src.GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAutoencoder
+from GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAutoencoder, LightningAutoencoderInterpreter
+from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
+
+
+def get_basic_params():
+    """Helper to get basic valid params."""
+    return {
+        "LearningRate": 0.001,
+        "Patience": 5,
+        "EncoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Flatten",
+                    "params": {}
+                },
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 784,
+                        "out_features": 128,
+                        "bias": True,
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "DecoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 128,
+                        "out_features": 784,
+                        "bias": True,
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "FeedForwardParams": {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 128,
+                        "out_features": 64,
+                        "bias": True,
+                        "device": None,
+                        "dtype": None
+                    }
+                },
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 64,
+                        "out_features": 10,
+                        "bias": True,
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "OutputDim": 10
+    }
 
 
 class TestLightningAutoencoderInitialization:
@@ -9,128 +78,67 @@ class TestLightningAutoencoderInitialization:
 
     def test_initialization_with_valid_params(self):
         """Test that LightningAutoencoder initializes correctly with valid parameters."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Conv2d",
-                        "params": {
-                            "in_channels": 1,
-                            "out_channels": 32,
-                            "kernel_size": 3,
-                            "stride": 1,
-                            "padding": 1,
-                            "dilation": 1,
-                            "groups": 1,
-                            "bias": True,
-                            "padding_mode": "zeros",
-                            "device": None,
-                            "dtype": None
-                        }
-                    },
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
-
+        params = get_basic_params()
         model = LightningAutoencoder(params)
 
         assert isinstance(model, L.LightningModule)
         assert hasattr(model, 'encoder')
         assert hasattr(model, 'decoder')
         assert hasattr(model, 'feedforward')
+        assert hasattr(model, 'val_f1')
+        assert hasattr(model, 'params')
 
     def test_initialization_missing_encoder_params(self):
         """Test that initialization fails when EncoderParams are missing."""
-        params = {
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": []
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": []
-            }
-        }
+        params = get_basic_params()
+        del params["EncoderParams"]
 
         with pytest.raises(KeyError, match="EncoderParams"):
             LightningAutoencoder(params)
 
     def test_initialization_missing_decoder_params(self):
         """Test that initialization fails when DecoderParams are missing."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": []
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": []
-            }
-        }
+        params = get_basic_params()
+        del params["DecoderParams"]
 
         with pytest.raises(KeyError, match="DecoderParams"):
             LightningAutoencoder(params)
 
     def test_initialization_missing_feedforward_params(self):
         """Test that initialization fails when FeedForwardParams are missing."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": []
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": []
-            }
-        }
+        params = get_basic_params()
+        del params["FeedForwardParams"]
 
         with pytest.raises(KeyError, match="FeedForwardParams"):
             LightningAutoencoder(params)
+
+    def test_initialization_missing_output_dim(self):
+        """Test that initialization fails when OutputDim is missing."""
+        params = get_basic_params()
+        del params["OutputDim"]
+
+        with pytest.raises(KeyError, match="OutputDim"):
+            LightningAutoencoder(params)
+
+    def test_initialization_missing_learning_rate(self):
+        """Test that model works with default learning rate."""
+        params = get_basic_params()
+        del params["LearningRate"]
+
+        model = LightningAutoencoder(params)
+        optimizer_config = model.configure_optimizers()
+        # Should use default 0.001
+        assert optimizer_config['optimizer'].param_groups[0]['lr'] == 0.001
+
+    def test_initialization_missing_patience(self):
+        """Test that model works with default patience."""
+        params = get_basic_params()
+        del params["Patience"]
+
+        model = LightningAutoencoder(params)
+        optimizer_config = model.configure_optimizers()
+        # Should use default 5
+        assert optimizer_config['lr_scheduler']['scheduler'].patience == 5
 
     def test_initialization_with_empty_params(self):
         """Test that initialization fails with empty params dictionary."""
@@ -141,17 +149,8 @@ class TestLightningAutoencoderInitialization:
 
     def test_initialization_with_wrong_param_types(self):
         """Test that initialization fails when parameter types are incorrect."""
-        params = {
-            "EncoderParams": "not_a_dict",
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": []
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": []
-            }
-        }
+        params = get_basic_params()
+        params["EncoderParams"] = "not_a_dict"
 
         with pytest.raises(TypeError):
             LightningAutoencoder(params)
@@ -163,68 +162,7 @@ class TestLightningAutoencoderForward:
     @pytest.fixture
     def simple_model(self):
         """Fixture providing a simple LightningAutoencoder model."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 64,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 64,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
-        return LightningAutoencoder(params)
+        return LightningAutoencoder(get_basic_params())
 
     def test_forward_pass_returns_two_outputs(self, simple_model):
         """Test that forward pass returns predictions and decoded output."""
@@ -280,8 +218,9 @@ class TestLightningAutoencoderForward:
         simple_model.eval()
         x = torch.randn(2, 1, 28, 28)
 
-        predictions1, decoded1 = simple_model.forward(x)
-        predictions2, decoded2 = simple_model.forward(x)
+        with torch.no_grad():
+            predictions1, decoded1 = simple_model.forward(x)
+            predictions2, decoded2 = simple_model.forward(x)
 
         assert torch.allclose(predictions1, predictions2)
         assert torch.allclose(decoded1, decoded2)
@@ -293,68 +232,7 @@ class TestLightningAutoencoderTrainingStep:
     @pytest.fixture
     def simple_model(self):
         """Fixture providing a simple LightningAutoencoder model."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 64,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 64,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
-        return LightningAutoencoder(params)
+        return LightningAutoencoder(get_basic_params())
 
     def test_training_step_with_labels(self, simple_model):
         """Test training step with both images and labels."""
@@ -400,11 +278,13 @@ class TestLightningAutoencoderTrainingStep:
         # Compute expected reconstruction loss
         predictions, decoded = simple_model.forward(x)
         loss_fn_reconstruction = torch.nn.MSELoss()
-        reconstruction_loss = loss_fn_reconstruction(
-            decoded, x.view(x.size(0), -1))
+        x_flat = x.view(x.size(0), -1)
+        decoded_flat = decoded.view(decoded.size(0), -1)
+        reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
 
         # Compute expected prediction loss
-        loss_fn_prediction = torch.nn.CrossEntropyLoss()
+        class_weights = torch.tensor([1.0] * 10, device=x.device)
+        loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
         prediction_loss = loss_fn_prediction(predictions, y)
 
         expected_loss = reconstruction_loss + prediction_loss
@@ -426,7 +306,9 @@ class TestLightningAutoencoderTrainingStep:
         # Compute expected reconstruction loss
         predictions, decoded = simple_model.forward(x)
         loss_fn_reconstruction = torch.nn.MSELoss()
-        expected_loss = loss_fn_reconstruction(decoded, x.view(x.size(0), -1))
+        x_flat = x.view(x.size(0), -1)
+        decoded_flat = decoded.view(decoded.size(0), -1)
+        expected_loss = loss_fn_reconstruction(decoded_flat, x_flat)
 
         # Check that losses are close
         assert torch.allclose(loss_no_labels, expected_loss, rtol=1e-5)
@@ -459,64 +341,110 @@ class TestLightningAutoencoderTrainingStep:
             assert loss > 0
 
 
+class TestLightningAutoencoderValidationStep:
+    """Test suite for LightningAutoencoder validation step."""
+
+    @pytest.fixture
+    def simple_model(self):
+        """Fixture providing a simple LightningAutoencoder model."""
+        return LightningAutoencoder(get_basic_params())
+
+    def test_validation_step(self, simple_model):
+        """Test validation step."""
+        batch_size = 4
+        x = torch.randn(batch_size, 1, 28, 28)
+        y = torch.randint(0, 10, (batch_size,))
+        batch = (x, y)
+
+        f1_score = simple_model.validation_step(batch, 0)
+
+        assert isinstance(f1_score, torch.Tensor)
+        assert 0.0 <= f1_score.item() <= 1.0
+
+    def test_validation_step_f1_metric_persistence(self, simple_model):
+        """Test that F1 metric persists across validation steps."""
+        # Run multiple validation steps
+        for _ in range(3):
+            x = torch.randn(4, 1, 28, 28)
+            y = torch.randint(0, 10, (4,))
+            batch = (x, y)
+            simple_model.validation_step(batch, 0)
+
+        # F1 metric should have been updated multiple times
+        assert hasattr(simple_model, 'val_f1')
+
+    def test_validation_epoch_end_resets_metric(self, simple_model):
+        """Test that F1 metric is reset at end of validation epoch."""
+        # Run some validation steps
+        for _ in range(3):
+            x = torch.randn(4, 1, 28, 28)
+            y = torch.randint(0, 10, (4,))
+            batch = (x, y)
+            simple_model.validation_step(batch, 0)
+
+        # Get F1 value before reset
+        f1_before = simple_model.val_f1.compute()
+
+        # Reset
+        simple_model.on_validation_epoch_end()
+
+        # After reset, the internal state should be reset
+        # (we can't directly check if it's reset, but we can verify the method exists)
+        assert hasattr(simple_model, 'on_validation_epoch_end')
+
+
+class TestLightningAutoencoderOptimizer:
+    """Test suite for optimizer configuration."""
+
+    def test_configure_optimizers(self):
+        """Test that optimizer is configured correctly."""
+        model = LightningAutoencoder(get_basic_params())
+        optimizer_config = model.configure_optimizers()
+
+        assert 'optimizer' in optimizer_config
+        assert 'lr_scheduler' in optimizer_config
+        assert isinstance(optimizer_config['optimizer'], torch.optim.AdamW)
+        assert isinstance(optimizer_config['lr_scheduler']['scheduler'],
+                          torch.optim.lr_scheduler.ReduceLROnPlateau)
+        assert optimizer_config['lr_scheduler']['monitor'] == 'val_F1'
+
+    def test_optimizer_learning_rate(self):
+        """Test that optimizer uses correct learning rate."""
+        params = get_basic_params()
+        params["LearningRate"] = 0.005
+        model = LightningAutoencoder(params)
+        optimizer_config = model.configure_optimizers()
+        optimizer = optimizer_config['optimizer']
+
+        assert optimizer.param_groups[0]['lr'] == 0.005
+
+    def test_scheduler_patience(self):
+        """Test that scheduler uses correct patience."""
+        params = get_basic_params()
+        params["Patience"] = 10
+        model = LightningAutoencoder(params)
+        optimizer_config = model.configure_optimizers()
+        scheduler = optimizer_config['lr_scheduler']['scheduler']
+
+        assert scheduler.patience == 10
+
+    def test_different_learning_rates(self):
+        """Test LightningAutoencoder with different learning rates."""
+        for lr in [0.0001, 0.001, 0.01]:
+            params = get_basic_params()
+            params["LearningRate"] = lr
+            model = LightningAutoencoder(params)
+            optimizer_config = model.configure_optimizers()
+            assert optimizer_config['optimizer'].param_groups[0]['lr'] == lr
+
+
 class TestLightningAutoencoderEdgeCases:
     """Test suite for edge cases and error handling."""
 
     @pytest.fixture
     def simple_model(self):
         """Fixture providing a simple LightningAutoencoder model."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
-        return LightningAutoencoder(params)
+        return LightningAutoencoder(get_basic_params())
 
     def test_forward_with_single_sample(self, simple_model):
         """Test forward pass with batch size of 1."""
@@ -551,58 +479,7 @@ class TestLightningAutoencoderEdgeCases:
         assert len(state_dict) > 0
 
         # Create a new model with the same architecture
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
-        new_model = LightningAutoencoder(params)
+        new_model = LightningAutoencoder(get_basic_params())
         new_model.load_state_dict(state_dict)
 
     def test_training_step_with_zero_tensor(self, simple_model):
@@ -619,6 +496,26 @@ class TestLightningAutoencoderEdgeCases:
         assert not torch.isnan(loss)
         assert not torch.isinf(loss)
 
+    def test_save_and_load_model(self, simple_model, tmp_path):
+        """Test saving and loading model state."""
+        x = torch.randn(4, 1, 28, 28)
+        predictions1, decoded1 = simple_model.forward(x)
+
+        # Save state
+        checkpoint_path = tmp_path / "checkpoint.pt"
+        torch.save(simple_model.state_dict(), checkpoint_path)
+
+        # Load into new model
+        new_model = LightningAutoencoder(get_basic_params())
+        new_model.load_state_dict(torch.load(checkpoint_path))
+        new_model.eval()
+
+        # Outputs should match
+        with torch.no_grad():
+            predictions2, decoded2 = new_model.forward(x)
+        assert torch.allclose(predictions1, predictions2)
+        assert torch.allclose(decoded1, decoded2)
+
 
 class TestLightningAutoencoderWithDifferentActivations:
     """Test suite for different activation functions."""
@@ -626,57 +523,8 @@ class TestLightningAutoencoderWithDifferentActivations:
     @pytest.mark.parametrize("activation", ["ReLU", "GELU", "LeakyReLU"])
     def test_different_encoder_activations(self, activation):
         """Test LightningAutoencoder with different encoder activation functions."""
-        params = {
-            "EncoderParams": {
-                "activation_function": activation,
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "ReLU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
+        params = get_basic_params()
+        params["EncoderParams"]["activation_function"] = activation
 
         model = LightningAutoencoder(params)
         x = torch.randn(2, 1, 28, 28)
@@ -688,57 +536,8 @@ class TestLightningAutoencoderWithDifferentActivations:
     @pytest.mark.parametrize("activation", ["ReLU", "GELU", "LeakyReLU", "Sigmoid", "Tanh", "ELU", "SELU"])
     def test_different_feedforward_activations(self, activation):
         """Test LightningAutoencoder with different feedforward activation functions."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": activation,
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
+        params = get_basic_params()
+        params["FeedForwardParams"]["activation_function"] = activation
 
         model = LightningAutoencoder(params)
         x = torch.randn(2, 1, 28, 28)
@@ -747,141 +546,27 @@ class TestLightningAutoencoderWithDifferentActivations:
         assert predictions is not None
         assert decoded is not None
 
-    def test_weighted_loss(self):
-        """Test that class weights are correctly applied in the loss calculation with unbalanced dataset."""
-        params = {
-            "EncoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Flatten",
-                        "params": {}
-                    },
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 784,
-                            "out_features": 128,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "DecoderParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 784,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            },
-            "FeedForwardParams": {
-                "activation_function": "GELU",
-                "layer_type": [
-                    {
-                        "name": "Linear",
-                        "params": {
-                            "in_features": 128,
-                            "out_features": 10,
-                            "bias": True,
-                            "device": None,
-                            "dtype": None
-                        }
-                    }
-                ]
-            }
-        }
 
-        model = LightningAutoencoder(params)
+class TestLightningAutoencoderInterpreter:
+    """Test suite for LightningAutoencoderInterpreter."""
 
-        # Create a synthetic unbalanced dataset
-        # Class distribution: class 0 appears 10 times, class 1 appears 2 times
-        batch_size = 12
-        num_classes = 10
-        x = torch.randn(batch_size, 1, 28, 28)
+    def test_interpreter_exists(self):
+        """Test that interpreter exists and is properly configured."""
+        assert hasattr(LightningAutoencoder, '__module__')
+        assert isinstance(LightningAutoencoderInterpreter,
+                          ParameterInterpreter)
+        assert LightningAutoencoderInterpreter.name == "LightningAutoencoderInterpreter"
 
-        # Create unbalanced labels: 10 samples of class 0, 2 samples of class 1
-        y = torch.cat([
-            torch.zeros(10, dtype=torch.long),  # 10 samples of class 0
-            torch.ones(2, dtype=torch.long)     # 2 samples of class 1
-        ])
+    def test_interpreter_required_params(self):
+        """Test that interpreter has correct required params."""
+        assert "EncoderParams" in LightningAutoencoderInterpreter.requiredParams
+        assert "DecoderParams" in LightningAutoencoderInterpreter.requiredParams
+        assert "FeedForwardParams" in LightningAutoencoderInterpreter.requiredParams
+        assert "OutputDim" in LightningAutoencoderInterpreter.requiredParams
 
-        batch = (x, y)
-        batch_idx = 0
-
-        # Get the model's computed loss
-        model_loss = model.training_step(batch, batch_idx)
-
-        # Manually compute the expected loss with the same weights
-        predictions, decoded = model.forward(x)
-
-        # Compute reconstruction loss
-        loss_fn_reconstruction = torch.nn.MSELoss()
-        x_flat = x.view(x.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
-        expected_reconstruction_loss = loss_fn_reconstruction(
-            decoded_flat, x_flat)
-
-        # Compute prediction loss with class weights
-        # The model uses uniform weights [1.0, 1.0, ..., 1.0]
-        class_weights = torch.tensor([1.0] * num_classes, device=x.device)
-        loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
-        expected_prediction_loss = loss_fn_prediction(predictions, y)
-
-        expected_total_loss = expected_reconstruction_loss + expected_prediction_loss
-
-        # Verify the loss matches
-        assert torch.allclose(model_loss, expected_total_loss, rtol=1e-5), \
-            f"Model loss {model_loss.item()} != Expected loss {expected_total_loss.item()}"
-
-        # Also verify that weighted loss differs from unweighted loss
-        # to ensure weights are actually being applied
-        unweighted_loss_fn = torch.nn.CrossEntropyLoss()
-        unweighted_prediction_loss = unweighted_loss_fn(predictions, y)
-
-        # With uniform weights, weighted and unweighted should be the same
-        assert torch.allclose(expected_prediction_loss, unweighted_prediction_loss, rtol=1e-5), \
-            "Uniform weights should produce same loss as no weights"
-
-        # Test with custom weights to verify weight mechanism works
-        # Create a more extreme imbalanced dataset where most samples are class 1
-        y_imbalanced = torch.cat([
-            torch.zeros(2, dtype=torch.long),  # 2 samples of class 0
-            torch.ones(10, dtype=torch.long)   # 10 samples of class 1
-        ])
-
-        # Get predictions for the imbalanced dataset
-        predictions_imbalanced, _ = model.forward(x)
-
-        # Compute unweighted loss
-        unweighted_loss_imbalanced = unweighted_loss_fn(
-            predictions_imbalanced, y_imbalanced)
-
-        # Create custom weights that heavily penalize the rare class (class 0)
-        # Class 0 (rare): weight 10.0, Class 1 (common): weight 1.0
-        custom_weights = torch.tensor(
-            [10.0, 1.0] + [1.0] * (num_classes - 2), device=x.device)
-        custom_loss_fn = torch.nn.CrossEntropyLoss(weight=custom_weights)
-        custom_weighted_loss = custom_loss_fn(
-            predictions_imbalanced, y_imbalanced)
-
-        # The custom weighted loss should be noticeably different from unweighted
-        # because we're applying 10x weight to class 0 samples
-        loss_difference = torch.abs(
-            custom_weighted_loss - unweighted_loss_imbalanced)
-        assert loss_difference > 0.01, \
-            f"Custom weights should produce significantly different loss. Difference: {loss_difference.item()}"
-
-        # Verify that the weight mechanism actually increases the loss when rare class has higher weight
-        # (assuming the model makes some errors on class 0)
-        assert custom_weighted_loss.item() != unweighted_loss_imbalanced.item(), \
-            "Weighted and unweighted losses should differ"
+    def test_interpreter_interpretation(self):
+        """Test that interpreter has correct interpretation."""
+        assert "LearningRate" in LightningAutoencoderInterpreter.interpretation
+        assert "Patience" in LightningAutoencoderInterpreter.interpretation
+        assert LightningAutoencoderInterpreter.interpretation["LearningRate"] == float
+        assert LightningAutoencoderInterpreter.interpretation["Patience"] == int

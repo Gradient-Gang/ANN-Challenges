@@ -15,7 +15,8 @@ LightningAutoencoderInterpreter = ParameterInterpreter(
     requiredParams={
         "EncoderParams": dict,
         "DecoderParams": dict,
-        "FeedForwardParams": dict
+        "FeedForwardParams": dict,
+        "OutputDim": int
     }
 )
 
@@ -24,9 +25,14 @@ class LightningAutoencoder(L.LightningModule):
     def __init__(self, params: dict):
         super().__init__()
         LightningAutoencoderInterpreter.checkRequiredParams(params)
+
+        # Store params for later use
+        self.params = params
+
         encoder_params = params["EncoderParams"]
         decoder_params = params["DecoderParams"]
         feedforward_params = params["FeedForwardParams"]
+        output_dim = params["OutputDim"]
 
         # Extract additional parameters if provided, with defaults
         num_input_channels = params.get("num_input_channels", 1)
@@ -41,6 +47,9 @@ class LightningAutoencoder(L.LightningModule):
                                base_channel_size, num_output_channels, act_fn)
         self.feedforward = FeedForward(feedforward_params)
 
+        # Initialize F1Score metric as instance variable
+        self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
+
     def forward(self, x):
         encoded = self.encoder(x)
         predictions = self.feedforward(encoded)
@@ -48,12 +57,14 @@ class LightningAutoencoder(L.LightningModule):
         return predictions, decoded
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(
-        ), lr=self.LightningAutoencoderInterpreter.getParam("LearningRate"))
+        learning_rate = self.params.get("LearningRate", 0.001)
+        patience = self.params.get("Patience", 5)
+
+        optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate)
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=self.LightningAutoencoderInterpreter.getParam("Patience"), min_lr=5e-5)
+            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5)
         return {'optimizer': optimizer,
                 'lr_scheduler': {
                     'scheduler': scheduler,
@@ -64,11 +75,14 @@ class LightningAutoencoder(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         predictions, decoded = self.forward(x)
+
+        # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
-        # Flatten x to match decoded shape if needed
         x_flat = x.view(x.size(0), -1)
         decoded_flat = decoded.view(decoded.size(0), -1)
         reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
+
+        # Compute prediction loss if labels provided
         if y is not None:
             # Define class weights - adjust these values based on your class distribution
             class_weights = torch.tensor(
@@ -78,6 +92,7 @@ class LightningAutoencoder(L.LightningModule):
             prediction_loss = loss_fn_prediction(predictions, y)
         else:
             prediction_loss = 0
+
         loss = reconstruction_loss + prediction_loss
         self.log('train_loss', loss)
         return loss
@@ -85,11 +100,20 @@ class LightningAutoencoder(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         predictions, decoded = self.forward(x)
+
+        # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
-        # Flatten x to match decoded shape if needed
         x_flat = x.view(x.size(0), -1)
         decoded_flat = decoded.view(decoded.size(0), -1)
-        f1 = F1Score(task="multiclass", num_classes=predictions.size(1))
-        f1.update(predictions, y)
-        self.log("val_F1", f1.compute())
-        return f1.compute()
+        reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
+        self.log("val_reconstruction_loss", reconstruction_loss)
+
+        # Update the F1 metric with predictions and targets
+        self.val_f1.update(predictions, y)
+        f1_score = self.val_f1.compute()
+        self.log("val_F1", f1_score)
+        return f1_score
+
+    def on_validation_epoch_end(self):
+        """Reset F1 metric at the end of each validation epoch."""
+        self.val_f1.reset()
