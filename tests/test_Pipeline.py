@@ -1,7 +1,8 @@
 import pytest
 import lightning as L
-from src.GradientGang.Pipeline.Pipeline import Pipeline
-from src.GradientGang.Optimizer.Optimizer import Optimizer
+from GradientGang.Pipeline.Pipeline import Pipeline
+from GradientGang.Pipeline.Optimizer.Optimizer import Optimizer
+from GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAutoencoder
 import yaml
 import tempfile
 import os
@@ -89,26 +90,150 @@ def test_constructor_invalid_test_type(mock_dataset, mock_optimizer, valid_confi
 # Test build_architecture
 def test_build_architecture_autoencoder_split(mock_dataset, mock_test_dataset, mock_optimizer, valid_config):
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
-    params = {"arch_type": "autoencoder_split"}
+    params = {
+        "arch_type": "autoencoder_split",
+        "EncoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Conv2d",
+                    "params": {
+                        "in_channels": 1,
+                        "out_channels": 64,
+                        "kernel_size": 3,
+                        "stride": 1,
+                        "padding": 1,
+                        "dilation": 1,
+                        "groups": 1,
+                        "bias": True,
+                        "padding_mode": "zeros",
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "DecoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "ConvTranspose2d",
+                    "params": {
+                        "in_channels": 64,
+                        "out_channels": 1,
+                        "kernel_size": 3,
+                        "stride": 1,
+                        "padding": 1,
+                        "output_padding": 0,
+                        "groups": 1,
+                        "bias": True,
+                        "dilation": 1,
+                        "padding_mode": "zeros",
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "FeedForwardParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 784,
+                        "out_features": 10,
+                        "bias": True,
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "LearningRate": 0.001,
+        "Patience": 3
+    }
     arch = pipeline.build_architecture(params)
-    assert arch is None  # Currently returns None as per implementation
+    assert isinstance(arch, LightningAutoencoder)
 
 def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, mock_optimizer, valid_config):
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
-    params = {"arch_type": "autoencoder_joint"}
+    params = {
+        "arch_type": "autoencoder_joint",
+        "EncoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Conv2d",
+                    "params": {
+                        "in_channels": 1,
+                        "out_channels": 64,
+                        "kernel_size": 3,
+                        "stride": 1,
+                        "padding": 1,
+                        "dilation": 1,
+                        "groups": 1,
+                        "bias": True,
+                        "padding_mode": "zeros",
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "DecoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "ConvTranspose2d",
+                    "params": {
+                        "in_channels": 64,
+                        "out_channels": 1,
+                        "kernel_size": 3,
+                        "stride": 1,
+                        "padding": 1,
+                        "output_padding": 0,
+                        "groups": 1,
+                        "bias": True,
+                        "dilation": 1,
+                        "padding_mode": "zeros",
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "FeedForwardParams": {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 784,
+                        "out_features": 10,
+                        "bias": True,
+                        "device": None,
+                        "dtype": None
+                    }
+                }
+            ]
+        },
+        "LearningRate": 0.001,
+        "Patience": 3
+    }
     arch = pipeline.build_architecture(params)
-    assert arch is None  # Currently returns None as per implementation
+    assert isinstance(arch, LightningAutoencoder)
 
 def test_build_architecture_direct(mock_dataset, mock_test_dataset, mock_optimizer, valid_config):
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
     params = {"arch_type": "direct"}
-    arch = pipeline.build_architecture(params)
-    assert arch is None  # Currently returns None as per implementation
+    with pytest.raises(NotImplementedError):
+        pipeline.build_architecture(params)
 
 def test_build_architecture_invalid_type(mock_dataset, mock_test_dataset, mock_optimizer, valid_config):
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
     params = {"arch_type": "invalid_type"}
-    with pytest.raises(ValueError, match="Invalid architecture type"):
+    with pytest.raises(KeyError):
         pipeline.build_architecture(params)
 
 # Test optimize

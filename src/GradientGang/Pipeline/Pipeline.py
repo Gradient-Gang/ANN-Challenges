@@ -7,7 +7,9 @@ hyper.yaml
 """
 
 import lightning as L
-from .Optimizer.Optimizer import Optimizer 
+from .Optimizer.Optimizer import Optimizer
+from .Architectures.LightningAutoencoder import LightningAutoencoder
+from .Utils.ParameterInterpreter import ParameterInterpreter
 import yaml
 
 class Pipeline:
@@ -38,18 +40,21 @@ class Pipeline:
                 self.config = yaml.safe_load(f)
 
     def build_architecture(self, params: dict) -> L.LightningModule:
-        arch = None
+        interpretation = {
+            "autoencoder_joint": LightningAutoencoder, 
+            "autoencoder_split": LightningAutoencoder,
+            "direct": None}
+        required = {"arch_type": ["autoencoder_joint", "autoencoder_split", "direct"]}  # Require arch_type parameter and ensure it's a string
+        parameterInterpreter = ParameterInterpreter(interpretation, requiredParams=required)
 
-        if params["arch_type"] == "autoencoder_split":
-            pass
-        elif params["arch_type"] == "autoencoder_joint":
-            pass
-        elif params["arch_type"] == "direct":
-            pass
-        else:
-            raise ValueError("Invalid architecture type")
+        parameterInterpreter.checkRequiredParams(params)
+        arch_type = params["arch_type"]
+        arch = parameterInterpreter.interpret(arch_type)
+
+        if arch_type == "direct":
+            raise NotImplementedError("Direct architecture not implemented yet")
         
-        return arch
+        return arch(params)
         
     def optimize(self):
         return self.optimizer.optimize(self.build_architecture, self.config)
