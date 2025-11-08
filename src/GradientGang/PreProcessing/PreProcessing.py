@@ -1,8 +1,10 @@
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 import sklearn
+
 
 class PreProcessing:
     def __init__(self, path_params: str):
@@ -12,41 +14,48 @@ class PreProcessing:
         with open(path_params, 'r') as f:
             self.params = yaml.safe_load(f)
 
-        #print(self.params)
-
+        # paths
         self.path_raw_data = self.params.get("path_raw_data", "")
         self.path_processed_data = self.params.get("path_processed_data", "")
 
+        # file names
         self.name_train_file = self.params.get("name_train_file", "train.csv")
         self.name_test_file = self.params.get("name_test_file", "test.csv")
         self.name_train_labels_file = self.params.get("name_train_labels_file", "train_labels.csv")
 
+        # feature handling flags
         self.drop_all_is_pirate = self.params.get("drop_all_is_pirate", False)
         self.one_hot_encode_is_pirate = self.params.get("one_hot_encode", False)
 
-        self.pca = self.params.get("pca", False)
-        if self.pca:
+        # pca
+        self.use_pca = self.params.get("pca", False)
+        if self.use_pca:
             self.explained_variance = self.params.get("explained_variance", 0.95)
 
-        self.feature_selection = self.params.get("feature_selection", False)
-        if self.feature_selection:
+        # feature selection
+        self.use_feature_selection = self.params.get("feature_selection", False)
+        if self.use_feature_selection:
             self.feature_selected = self.params.get("feature_selected", None)
 
+        # verbosity
         self.verbose = self.params.get("verbose", True)
 
     def load_data(self, file_name: str) -> pd.DataFrame:
         """
         Load data from a CSV file.
         """
-        file_path = f"{self.path_raw_data}/{file_name}"
+        file_path = os.path.join(self.path_raw_data, file_name)
         data = pd.read_csv(file_path)
         return data
-    
-    def save_data(self, data: pd.DataFrame, file_name: str):
+
+    def save_data(self, data, file_name: str):
         """
-        Save data to a CSV file.
+        Save data to a CSV file. Accepts DataFrame or numpy array.
         """
-        file_path = f"{self.path_processed_data}/{file_name}"
+        file_path = os.path.join(self.path_processed_data, file_name)
+        if not isinstance(data, pd.DataFrame):
+            # convert numpy array or other array-like to DataFrame
+            data = pd.DataFrame(data)
         data.to_csv(file_path, index=False)
 
     def remove_last_column(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -54,37 +63,47 @@ class PreProcessing:
         Remove the last column from the DataFrame.
         """
         return data.drop(data.columns[-1], axis=1)
-    
+
     def handle_inspirate_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Handle inspirate features by dropping or encoding them."""
+        Handle inspirate features by dropping or encoding them.
+        """
+        # If user wants to drop everything related to 'is_pirate' features
         if self.drop_all_is_pirate:
-            return data.drop(columns=["n_legs", "n_hands", "n_eyes"])
-        
-        
-        eye_map = {"two": 2, "one+eye_patch": 1}
-        data["number"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
-        data = data.drop(columns=["n_legs", "n_hands", "n_eyes"])
+            return data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors='ignore')
 
-        if self.one_hot_encode_is_pirate:
+        # If user requested one-hot encoding of n_eyes, do that before dropping
+        if self.one_hot_encode_is_pirate and "n_eyes" in data.columns:
             data = pd.get_dummies(data, columns=["n_eyes"], drop_first=False)
-            return data
-        else:
+            data = data.drop(columns=["n_legs", "n_hands"], errors='ignore')
             return data
 
-    def normalize_per_process(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> pd.DataFrame:
+        # default: map n_eyes to a numeric column called 'number' then drop originals
+        eye_map = {"two": 2, "one+eye_patch": 1}
+        if "n_eyes" in data.columns:
+            data["number"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
+        data = data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors='ignore')
+        return data
+
+    def normalize_per_process(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
         """
         Normalize numerical features to have zero mean and unit variance.
+        Returns (training_data, test_data).
         """
-        # Extract numerical columns:
-        columns =[col for col in training_data.columns if training_data[col].dtype in [np.float64, np.float32]]
+        # Select numeric columns (includes ints and floats)
+        columns = training_data.select_dtypes(include=[np.number]).columns.tolist()
 
-        # Normalize each column
+        # Normalize each column with safe handling for zero std
         for col in columns:
             mean = training_data[col].mean()
             std = training_data[col].std()
-            training_data[col] = (training_data[col] - mean) / std
-            test_data[col] = (test_data[col] - mean) / std
+            if std == 0 or np.isnan(std):
+                # center only; keep zeros for constant feature in train, center test
+                training_data[col] = training_data[col] - mean
+                test_data[col] = test_data[col] - mean
+            else:
+                training_data[col] = (training_data[col] - mean) / std
+                test_data[col] = (test_data[col] - mean) / std
 
         return training_data, test_data
 
@@ -100,7 +119,7 @@ class PreProcessing:
         fig, axes = plt.subplots(2, 4, figsize=(20, 10))
         axes = axes.flatten()
 
-        for i, ti in enumerate(T):
+        for ti in T:
             axes[0].plot(ti["time"], ti["pain_survey_1"])
             axes[1].plot(ti["time"], ti["pain_survey_2"])
             axes[2].plot(ti["time"], ti["pain_survey_3"])
@@ -121,23 +140,25 @@ class PreProcessing:
 
         plt.tight_layout()
         plt.show()
-                
-    def pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> pd.DataFrame:
+
+    def apply_pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
         """
         Apply PCA to reduce dimensionality of the data.
+        Returns (training_data, test_data).
         """
-
         pca = sklearn.decomposition.PCA(n_components=self.explained_variance)
-        training_data = pca.fit_transform(training_data)
-        test_data = pca.transform(test_data)
+        training_arr = pca.fit_transform(training_data)
+        test_arr = pca.transform(test_data)
+        return training_arr, test_arr
 
-        return training_data, test_data
-
-    def feature_selection(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> pd.DataFrame:
+    def apply_feature_selection(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
         """
         Select specific features from the data.
         """
-        training_data, test_data = training_data[self.feature_selected], test_data[self.feature_selected]
+        if getattr(self, 'feature_selected', None) is None:
+            raise ValueError("feature_selected is not set while feature selection requested")
+        training_data = training_data[self.feature_selected]
+        test_data = test_data[self.feature_selected]
         return training_data, test_data
 
     def preprocess(self):
@@ -170,7 +191,11 @@ class PreProcessing:
         print("Inspirate features handled successfully.")
 
         if self.verbose:
-            self.plot_one_time_series(train_data, number=3)
+            try:
+                self.plot_one_time_series(train_data, number=3)
+            except Exception:
+                # plotting should not stop preprocessing
+                pass
 
         try:
             train_data, test_data = self.normalize_per_process(train_data, test_data)
@@ -180,11 +205,14 @@ class PreProcessing:
         print("Data normalized successfully.")
 
         if self.verbose:
-            self.plot_one_time_series(train_data, number=3)
-
-        if self.pca:
             try:
-                train_data, test_data = self.pca(train_data, test_data)
+                self.plot_one_time_series(train_data, number=3)
+            except Exception:
+                pass
+
+        if self.use_pca:
+            try:
+                train_data, test_data = self.apply_pca(train_data, test_data)
             except Exception as e:
                 print(f"Error applying PCA: {e}")
                 return
@@ -192,9 +220,9 @@ class PreProcessing:
         else:
             print("PCA not applied.")
 
-        if self.feature_selection:
+        if self.use_feature_selection:
             try:
-                train_data, test_data = self.feature_selection(train_data, test_data)
+                train_data, test_data = self.apply_feature_selection(train_data, test_data)
             except Exception as e:
                 print(f"Error applying feature selection: {e}")
                 return
