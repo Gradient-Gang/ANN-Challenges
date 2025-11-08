@@ -2,35 +2,32 @@ import pytorch_lightning as L
 import torch
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Encoder import Encoder
-from .Decoder import Decoder
 from .FeedForward import FeedForward
 from torchmetrics import F1Score
 
-LightningAutoencoderInterpreter = ParameterInterpreter(
-    name="LightningAutoencoderInterpreter",
+DirectInterpreter = ParameterInterpreter(
+    name="DirectInterpreter",
     interpretation={
         "LearningRate": float,
         "Patience": int
     },
     requiredParams={
         "EncoderParams": dict,
-        "DecoderParams": dict,
         "FeedForwardParams": dict,
         "OutputDim": int
     }
 )
 
 
-class LightningAutoencoder(L.LightningModule):
+class Direct(L.LightningModule):
     def __init__(self, params: dict):
         super().__init__()
-        LightningAutoencoderInterpreter.checkRequiredParams(params)
+        DirectInterpreter.checkRequiredParams(params)
 
         # Store params for later use
         self.params = params
 
         encoder_params = params["EncoderParams"]
-        decoder_params = params["DecoderParams"]
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
 
@@ -38,13 +35,10 @@ class LightningAutoencoder(L.LightningModule):
         num_input_channels = params.get("num_input_channels", 1)
         base_channel_size = params.get("base_channel_size", 64)
         latent_dim = params.get("latent_dim", 128)
-        num_output_channels = params.get("num_output_channels", 1)
         act_fn = params.get("act_fn", torch.nn.GELU)
 
         self.encoder = Encoder(
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn)
-        self.decoder = Decoder(decoder_params, latent_dim,
-                               base_channel_size, num_output_channels, act_fn)
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
@@ -53,8 +47,7 @@ class LightningAutoencoder(L.LightningModule):
     def forward(self, x):
         encoded = self.encoder(x)
         predictions = self.feedforward(encoded)
-        decoded = self.decoder(encoded)
-        return predictions, decoded
+        return predictions
 
     def configure_optimizers(self):
         learning_rate = self.params.get("LearningRate", 0.001)
@@ -74,39 +67,24 @@ class LightningAutoencoder(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        predictions, decoded = self.forward(x)
+        predictions = self.forward(x)
 
-        # Compute reconstruction loss
-        loss_fn_reconstruction = torch.nn.MSELoss()
-        x_flat = x.view(x.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
-        reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
-
-        # Compute prediction loss if labels provided
         if y is not None:
             # Define class weights - adjust these values based on your class distribution
             class_weights = torch.tensor(
                 [1.0] * predictions.size(1), device=x.device)
             loss_fn_prediction = torch.nn.CrossEntropyLoss(
                 weight=class_weights)
-            prediction_loss = loss_fn_prediction(predictions, y)
+            loss = loss_fn_prediction(predictions, y)
         else:
-            prediction_loss = 0
+            loss = 0
 
-        loss = reconstruction_loss + prediction_loss
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        predictions, decoded = self.forward(x)
-
-        # Compute reconstruction loss for logging
-        loss_fn_reconstruction = torch.nn.MSELoss()
-        x_flat = x.view(x.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
-        reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
-        self.log("val_reconstruction_loss", reconstruction_loss)
+        predictions = self.forward(x)
 
         # Update the F1 metric with predictions and targets
         self.val_f1.update(predictions, y)
