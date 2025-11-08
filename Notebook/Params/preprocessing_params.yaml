@@ -1,0 +1,12 @@
+# Preprocessing parameters for the pipeline
+path_raw_data: "../dataset/Pirate"
+path_processed_data: "../dataset/PirateProcessed"
+
+name_train_file: "pirate_pain_train.csv"
+name_test_file: "pirate_pain_test.csv"
+name_train_labels_file: "pirate_pain_train_labels.csv"
+
+drop_all: false
+one_hot_encode: false
+
+verbose: true
