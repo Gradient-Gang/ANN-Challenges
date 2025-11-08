@@ -15,8 +15,7 @@ import yaml
 from . import LTorch
 
 class Pipeline (abc.ABC):
-    def __init__(self, train_data, val_data, test_data, path_arch: str, path_hyper: str):
-        self.arch = yaml.safe_load(path_arch)
+    def __init__(self, train_data, val_data, test_data, path_hyper: str):
         self.hyper = yaml.safe_load(path_hyper)
 
         self.train_data = train_data
