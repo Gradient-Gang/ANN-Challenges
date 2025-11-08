@@ -1,12 +1,25 @@
 # Preprocessing parameters for the pipeline
+
+# Data paths
 path_raw_data: "../dataset/Pirate"
 path_processed_data: "../dataset/PirateProcessed"
 
+# File names
 name_train_file: "pirate_pain_train.csv"
 name_test_file: "pirate_pain_test.csv"
 name_train_labels_file: "pirate_pain_train_labels.csv"
 
-drop_all: false
-one_hot_encode: false
+# Is pirate features
+drop_all_is_pirate: false
+one_hot_encode_is_pirate: false
 
-verbose: true
+# Feature extraction
+pca : false
+explained_variance: 0.95
+
+# Feature selection
+feature_selection: false
+feature_selected: None
+
+# Verbose
+verbose: false
