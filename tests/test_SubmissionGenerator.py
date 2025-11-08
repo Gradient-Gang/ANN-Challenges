@@ -5,7 +5,7 @@ import pytorch_lightning as L
 import os
 import tempfile
 from torch.utils.data import DataLoader, TensorDataset
-from src.GradientGang.Pipeline.SubmissionGenerator import SubmissionGenerator, generate_submission
+from GradientGang.Pipeline.Utils.SubmissionGenerator import SubmissionGenerator, generate_submission
 
 
 class MockModel(L.LightningModule):
