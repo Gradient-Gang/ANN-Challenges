@@ -1,4 +1,4 @@
-from GradientGang.Pipeline.Architectures.ParameterInterpreter import ParameterInterpreter
+from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
 import pytest
 
 

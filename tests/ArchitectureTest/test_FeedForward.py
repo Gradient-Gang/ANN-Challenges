@@ -2,7 +2,7 @@ import pytest
 import torch
 import torch.nn as nn
 from GradientGang.Pipeline.Architectures.FeedForward import FeedForward
-from GradientGang.Pipeline.Architectures.ParameterInterpreter import ParameterInterpreter
+from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
 
 
 class TestFeedForward:

@@ -1,6 +1,6 @@
 import pytorch_lightning as L
 import torch
-from .ParameterInterpreter import ParameterInterpreter
+from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Encoder import Encoder
 from .Decoder import Decoder
 from .FeedForward import FeedForward
