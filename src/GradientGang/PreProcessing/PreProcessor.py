@@ -42,8 +42,8 @@ class PreProcessor:
         self.drop_all_is_pirate = self.params.get("drop_all_is_pirate", False)
         self.one_hot_encode_is_pirate = self.params.get("one_hot_encode", False)
 
-        # pca
-        self.use_pca = self.params.get("pca", False)
+        # PCA
+        self.use_pca = self.params.get("PCA", False)
         if self.use_pca:
             self.explained_variance = self.params.get("explained_variance", 0.95)
 
@@ -51,6 +51,12 @@ class PreProcessor:
         self.use_feature_selection = self.params.get("feature_selection", False)
         if self.use_feature_selection:
             self.feature_selected = self.params.get("feature_selected", None)
+
+        # Columns not to be normalized
+        self.columns_excluded_from_normalization: list[str] = self.params.get(
+            "columns_excluded_from_normalization",
+            ["sample_index", "time", "isPirate", "isNotPirate"],
+        )
 
         # verbosity
         self.verbose = self.params.get("verbose", True)
@@ -65,13 +71,13 @@ class PreProcessor:
 
     def save_data(self, data, file_name: str):
         """
-        Save data to a CSV file. Accepts DataFrame or numpy array.
+        Save data to a CSV file. Accepts DataFrame or NumPy array.
         """
         os.makedirs(self.path_processed_data, exist_ok=True)
 
         file_path = os.path.join(self.path_processed_data, file_name)
         if not isinstance(data, pd.DataFrame):
-            # convert numpy array or other array-like to DataFrame
+            # convert NumPy array or other array-like to DataFrame
             data = pd.DataFrame(data)
 
         data.to_csv(file_path, index=False)
@@ -82,25 +88,25 @@ class PreProcessor:
         """
         return data.drop(data.columns[-1], axis=1)
 
-    def handle_inspirate_features(self, data: pd.DataFrame) -> pd.DataFrame:
+    def handle_is_pirate_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Handle inspirate features by dropping or encoding them.
+        Handle isPirate features by dropping or encoding them.
         """
         # If user wants to drop everything related to 'is_pirate' features
         if self.drop_all_is_pirate:
             return data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
 
-        # If user requested one-hot encoding of n_eyes, do that before dropping
-        if self.one_hot_encode_is_pirate and "n_eyes" in data.columns:
-            data = pd.get_dummies(data, columns=["n_eyes"], drop_first=False)
-            data = data.drop(columns=["n_legs", "n_hands"], errors="ignore")
-            return data
+        data = data.drop(columns=["n_legs", "n_hands"], errors="ignore")
 
         # default: map n_eyes to a numeric column called 'number' then drop originals
-        eye_map = {"two": 2, "one+eye_patch": 1}
-        if "n_eyes" in data.columns:
-            data["number"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
+        eye_map = {"two": 0, "one+eye_patch": 1}
+
+        data["isPirate"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
+
         data = data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
+
+        if self.one_hot_encode_is_pirate:
+            data["isNotPirate"] = 1 - data["isPirate"]
         return data
 
     def normalize_per_process(
@@ -110,8 +116,13 @@ class PreProcessor:
         Normalize numerical features to have zero mean and unit variance.
         Returns (training_data, test_data).
         """
-        # Select numeric columns (includes ints and floats)
+        # Select numeric columns (includes integers and floats)
         columns = training_data.select_dtypes(include=[np.number]).columns.tolist()
+
+        # Exclude specified columns from normalization
+        for col in self.columns_excluded_from_normalization:
+            if col in columns:
+                columns.remove(col)
 
         # Normalize each column with safe handling for zero std
         for col in columns:
@@ -177,10 +188,6 @@ class PreProcessor:
         """
         Select specific features from the data.
         """
-        if getattr(self, "feature_selected", None) is None:
-            raise ValueError(
-                "feature_selected is not set while feature selection requested"
-            )
         training_data = training_data[self.feature_selected]
         test_data = test_data[self.feature_selected]
         return training_data, test_data
@@ -207,8 +214,8 @@ class PreProcessor:
         print("Last column removed successfully.")
 
         try:
-            train_data = self.handle_inspirate_features(train_data)
-            test_data = self.handle_inspirate_features(test_data)
+            train_data = self.handle_is_pirate_features(train_data)
+            test_data = self.handle_is_pirate_features(test_data)
         except Exception as e:
             print(f"Error handling inspirate features: {e}")
             return
