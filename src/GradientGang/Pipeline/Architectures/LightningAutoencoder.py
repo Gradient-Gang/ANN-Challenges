@@ -154,21 +154,36 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
+        device = (
+            timeSeries.device
+            if (timeSeries is not None)
+            else torch.device(self.device)
+        )
+        if timeSeries is not None:
+            timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
+            decoded_flat = decoded.reshape(decoded.size(0), -1)
+            reconstruction_loss_timeSeries = loss_fn_reconstruction(
+                decoded_flat, timeSeries_flat
+            )
+        else:
+            reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
+        if globalFeatures is not None:
+            globalFeatures_flat = globalFeatures.reshape(
+                globalFeatures.size(0), -1)
+            decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
+                decoded_globalFeatures.size(0), -1
+            )
+            reconstruction_loss_globalFeatures = loss_fn_reconstruction(
+                decoded_globalFeatures_flat, globalFeatures_flat
+            )
+        else:
+            reconstruction_loss_globalFeatures = torch.tensor(
+                0.0, device=device)
 
-<< << << < HEAD
-        timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
-        decoded_flat = decoded.reshape(decoded.size(0), -1)
-        globalFeatures_flat = globalFeatures.reshape(
-            globalFeatures.size(0), -1)
-        decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
-            decoded_globalFeatures.size(0), -1)
-        reconstruction_loss_timeSeries = loss_fn_reconstruction(
-            decoded_flat, timeSeries_flat)
-        reconstruction_loss_globalFeatures = loss_fn_reconstruction(
-            decoded_globalFeatures_flat, globalFeatures_flat)
-        reconstruction_loss = reconstruction_loss_timeSeries + \
-            reconstruction_loss_globalFeatures
+        reconstruction_loss = (
+            reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
+        )
 
         # Compute prediction loss only for labeled samples (labels are int indices; -1 means unlabeled)
         labeled_mask = y >= 0
@@ -205,12 +220,13 @@ class LightningAutoencoder(L.LightningModule):
         # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
         device = (
-            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
+            timeSeries.device if (
+                timeSeries is not None) else torch.device(self.device)
         )
 
         if timeSeries is not None:
-            timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
-            decoded_flat = decoded.view(decoded.size(0), -1)
+            timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
+            decoded_flat = decoded.reshape(decoded.size(0), -1)
             reconstruction_loss_timeSeries = loss_fn_reconstruction(
                 decoded_flat, timeSeries_flat
             )
@@ -218,15 +234,17 @@ class LightningAutoencoder(L.LightningModule):
             reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
         if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
-            decoded_globalFeatures_flat = decoded_globalFeatures.view(
+            globalFeatures_flat = globalFeatures.reshape(
+                globalFeatures.size(0), -1)
+            decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
                 decoded_globalFeatures.size(0), -1
             )
             reconstruction_loss_globalFeatures = loss_fn_reconstruction(
                 decoded_globalFeatures_flat, globalFeatures_flat
             )
         else:
-            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
+            reconstruction_loss_globalFeatures = torch.tensor(
+                0.0, device=device)
 
         reconstruction_loss = (
             reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
