@@ -52,6 +52,15 @@ class LightningAutoencoder(L.LightningModule):
                                base_channel_size, num_output_channels, act_fn)
         self.globalff_encoder = FeedForward(global_ff_encoder_params)
         self.globalff_decoder = FeedForward(global_ff_decoder_params)
+
+        feedforward_params["layer_type"].append({
+            "name": "Linear",
+            "params": {
+                "in_features": feedforward_params["layer_type"][-1]["params"]["out_features"],
+                "out_features": output_dim,
+                "bias": True,
+            }
+        })
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable

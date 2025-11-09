@@ -43,6 +43,14 @@ class Direct(L.LightningModule):
         self.encoder = Encoder(
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn)
         self.globalff_encoder = FeedForward(global_ff_encoder_params)
+        feedforward_params["layer_type"].append({
+            "name": "Linear",
+            "params": {
+                "in_features": feedforward_params["layer_type"][-1]["params"]["out_features"],
+                "out_features": output_dim-1,
+                "bias": True,
+            }
+        })
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
@@ -56,6 +64,9 @@ class Direct(L.LightningModule):
         combined_encoded = torch.cat(
             (encoded_timeSeries, encoded_globalFeatures), dim=1)
         predictions = self.feedforward(combined_encoded)
+        zero_tensor = torch.zeros(
+            (predictions.size(0), 1), device=predictions.device)
+        predictions = torch.cat((predictions, zero_tensor), dim=-1)
         return predictions
 
     def configure_optimizers(self):
