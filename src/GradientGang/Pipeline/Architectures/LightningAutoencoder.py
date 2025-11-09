@@ -17,7 +17,9 @@ class LightningAutoencoder(L.LightningModule):
         },
         requiredParams={
             "EncoderParams": dict,
+            "GlobalFFEncoderParams": dict,
             "DecoderParams": dict,
+            "GlobalFFDecoderParams": dict,
             "FeedForwardParams": dict,
             "OutputDim": int
         }
@@ -31,7 +33,9 @@ class LightningAutoencoder(L.LightningModule):
         self.params = params
 
         encoder_params = params["EncoderParams"]
+        global_ff_encoder_params = params["GlobalFFEncoderParams"]
         decoder_params = params["DecoderParams"]
+        global_ff_decoder_params = params["GlobalFFDecoderParams"]
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
 
@@ -46,16 +50,30 @@ class LightningAutoencoder(L.LightningModule):
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn)
         self.decoder = Decoder(decoder_params, latent_dim,
                                base_channel_size, num_output_channels, act_fn)
+        self.globalff_encoder = FeedForward(global_ff_encoder_params)
+        self.globalff_decoder = FeedForward(global_ff_decoder_params)
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
         self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
 
     def forward(self, x):
-        encoded = self.encoder(x)
-        predictions = self.feedforward(encoded)
-        decoded = self.decoder(encoded)
-        return predictions, decoded
+        # Store original sequence length for decoder reconstruction
+        timeSeries = x[0]
+        globalFeatures = x[1]
+        original_seq_len = timeSeries.shape[1] if len(
+            timeSeries.shape) == 3 else None
+
+        encoded_timeSeries = self.encoder(timeSeries)
+        encoded_globalFeatures = self.globalff_encoder(globalFeatures)
+        combined_encoded = torch.cat(
+            (encoded_timeSeries, encoded_globalFeatures), dim=1)
+        predictions = self.feedforward(combined_encoded)
+        # Pass sequence length to decoder for LSTM autoencoder reconstruction
+        decoded = self.decoder(encoded_timeSeries, seq_len=original_seq_len)
+        decoded_globalFeatures = self.globalff_decoder(encoded_globalFeatures)
+
+        return predictions, (decoded, decoded_globalFeatures)
 
     def configure_optimizers(self):
         learning_rate = self.params.get("LearningRate", 0.001)
@@ -75,19 +93,28 @@ class LightningAutoencoder(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        predictions, decoded = self.forward(x)
-
+        predictions, (decoded, decoded_globalFeatures) = self.forward(x)
+        timeSeries = x[0]
+        globalFeatures = x[1]
         # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
-        x_flat = x.view(x.size(0), -1)
+        timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
         decoded_flat = decoded.view(decoded.size(0), -1)
-        reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
+        globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
+        decoded_globalFeatures_flat = decoded_globalFeatures.view(
+            decoded_globalFeatures.size(0), -1)
+        reconstruction_loss_timeSeries = loss_fn_reconstruction(
+            decoded_flat, timeSeries_flat)
+        reconstruction_loss_globalFeatures = loss_fn_reconstruction(
+            decoded_globalFeatures_flat, globalFeatures_flat)
+        reconstruction_loss = reconstruction_loss_timeSeries + \
+            reconstruction_loss_globalFeatures
 
         # Compute prediction loss if labels provided
         if y is not None:
             # Define class weights - adjust these values based on your class distribution
             class_weights = torch.tensor(
-                [1.0] * predictions.size(1), device=x.device)
+                [1.0] * predictions.size(1), device=timeSeries.device)
             loss_fn_prediction = torch.nn.CrossEntropyLoss(
                 weight=class_weights)
             prediction_loss = loss_fn_prediction(predictions, y)
@@ -100,13 +127,22 @@ class LightningAutoencoder(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        predictions, decoded = self.forward(x)
-
+        predictions, (decoded, decoded_globalFeatures) = self.forward(x)
+        timeSeries = x[0]
+        globalFeatures = x[1]
         # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
-        x_flat = x.view(x.size(0), -1)
+        timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
         decoded_flat = decoded.view(decoded.size(0), -1)
-        reconstruction_loss = loss_fn_reconstruction(decoded_flat, x_flat)
+        reconstruction_loss_timeSeries = loss_fn_reconstruction(
+            decoded_flat, timeSeries_flat)
+        globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
+        decoded_globalFeatures_flat = decoded_globalFeatures.view(
+            decoded_globalFeatures.size(0), -1)
+        reconstruction_loss_globalFeatures = loss_fn_reconstruction(
+            decoded_globalFeatures_flat, globalFeatures_flat)
+        reconstruction_loss = reconstruction_loss_timeSeries + \
+            reconstruction_loss_globalFeatures
         self.log("val_reconstruction_loss", reconstruction_loss)
 
         # Update the F1 metric with predictions and targets

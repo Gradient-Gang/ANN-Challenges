@@ -229,7 +229,20 @@ class Decoder(nn.Module):
 
         self.net = nn.Sequential(*modules)
 
-    def forward(self, x):
+    def forward(self, x, seq_len=None):
+        """
+        Forward pass for decoder.
+
+        Args:
+            x: Input tensor. Can be:
+               - (batch, features) for standard decoding
+               - (batch, seq_len, features) for sequence decoding
+            seq_len: Optional sequence length for LSTM autoencoder reconstruction.
+                     If provided and input is 2D, will repeat the embedding for each timestep.
+
+        Returns:
+            Decoded output tensor
+        """
         # Check if any recurrent layers (RNN, GRU, LSTM) are present
         has_recurrent = any(
             layer_params["name"] in ["LSTM", "GRU", "RNN"]
@@ -237,14 +250,29 @@ class Decoder(nn.Module):
         )
 
         if has_recurrent:
-            # For recurrent layers, handle the tuple output
+            # For LSTM autoencoder: expand 2D embeddings to 3D sequences
+            # Input: (batch, hidden_size) → (batch, seq_len, hidden_size)
+            if len(x.shape) == 2 and seq_len is not None:
+                # Repeat the embedding for each timestep
+                # (batch, seq_len, hidden_size)
+                x = x.unsqueeze(1).repeat(1, seq_len, 1)
+
+            # Process through layers, handling recurrent layer outputs
+            prev_was_recurrent = False
             for layer in self.net:
                 if isinstance(layer, (nn.LSTM, nn.GRU, nn.RNN)):
                     # RNN layers return (output, hidden_state) or (output, (hidden, cell))
-                    # We take the output and continue
                     x, _ = layer(x)
+                    prev_was_recurrent = True
+                elif isinstance(layer, (nn.ReLU, nn.GELU, nn.LeakyReLU, nn.Sigmoid, nn.Tanh)):
+                    # Skip activation after recurrent layers (they output sequences)
+                    if not prev_was_recurrent:
+                        x = layer(x)
+                    prev_was_recurrent = False
                 else:
                     x = layer(x)
+                    prev_was_recurrent = False
+
             return x
         else:
             # Standard feedforward processing
