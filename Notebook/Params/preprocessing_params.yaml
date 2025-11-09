@@ -14,7 +14,7 @@ drop_all_is_pirate: false
 one_hot_encode_is_pirate: false
 
 # Feature extraction
-pca : false
+pca : true
 explained_variance: 0.95
 
 # Feature selection
