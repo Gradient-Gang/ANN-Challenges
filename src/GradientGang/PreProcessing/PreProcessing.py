@@ -153,7 +153,7 @@ class PreProcessing:
         Apply PCA to reduce dimensionality of the data.
         Returns (training_data, test_data).
         """
-        pca = sklearn.decomposition.PCA(n_components=self.explained_variance)
+        pca: sklearn.decomposition.PCA = sklearn.decomposition.PCA(n_components=self.explained_variance)  # type: ignore
         training_arr = pca.fit_transform(training_data)
         test_arr = pca.transform(test_data)
         return training_arr, test_arr
