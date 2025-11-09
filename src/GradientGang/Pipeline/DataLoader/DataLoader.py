@@ -44,6 +44,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 axis=-1,
             )
             timeSeries = torch.tensor(timeSeries, dtype=torch.float32)
+            timeSeries = timeSeries.permute(0, 2, 1)  # (samples, features, time)
         else:
             globalFeatures = data_df[globalColumns].to_numpy()
             globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
@@ -188,7 +189,7 @@ class DataModule(L.LightningDataModule):
 
     def train_dataloader(self):
         """
-        Create training dataloader.
+        Create training data loader.
         """
         if self.train_dataset is None:
             raise RuntimeError("Training dataset not initialized. Call setup() first.")
@@ -204,7 +205,7 @@ class DataModule(L.LightningDataModule):
 
     def val_dataloader(self):
         """
-        Create validation dataloader.
+        Create validation data loader.
         """
         if self.val_dataset is None:
             raise RuntimeError(
@@ -222,7 +223,7 @@ class DataModule(L.LightningDataModule):
 
     def test_dataloader(self):
         """
-        Create test dataloader.
+        Create test data loader.
         """
         if self.test_dataset is None:
             raise RuntimeError("Test dataset not initialized. Call setup() first.")
@@ -238,6 +239,6 @@ class DataModule(L.LightningDataModule):
 
     def predict_dataloader(self):
         """
-        Create prediction dataloader (uses test dataset).
+        Create prediction data loader (uses test dataset).
         """
         return self.test_dataloader()
