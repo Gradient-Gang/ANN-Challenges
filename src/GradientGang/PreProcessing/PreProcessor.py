@@ -3,7 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
-import sklearn
+from sklearn.decomposition import PCA
+from tqdm.notebook import tqdm
 
 
 class PreProcessor:
@@ -172,15 +173,89 @@ class PreProcessor:
         plt.tight_layout()
         plt.show()
 
+    def __aggregate_time_series(
+        self,
+        data: pd.DataFrame,
+        primaryKeyColumn: str,
+        timeColumn: str,
+        extraColumns: list[str],
+    ) -> np.ndarray:
+        data = data[data.columns.difference(extraColumns)]
+
+        npData = np.stack(
+            [
+                data.pivot(index="sample_index", columns="time", values=feat).to_numpy()
+                for feat in data.columns.difference([primaryKeyColumn, timeColumn])
+            ],
+            axis=-1,
+        )
+
+        return npData
+
     def apply_pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
         """
         Apply PCA to reduce dimensionality of the data.
         Returns (training_data, test_data).
         """
-        pca: sklearn.decomposition.PCA = sklearn.decomposition.PCA(n_components=self.explained_variance)  # type: ignore
-        training_arr = pca.fit_transform(training_data)
-        test_arr = pca.transform(test_data)
-        return training_arr, test_arr
+
+        trainingDataNp = self.__aggregate_time_series(
+            training_data, "sample_index", "time", ["isPirate", "isNotPirate"]
+        )
+
+        testDataNp = self.__aggregate_time_series(
+            test_data, "sample_index", "time", ["isPirate", "isNotPirate"]
+        )
+
+        maxTrainingIndex = trainingDataNp.shape[0]
+
+        dataNp = np.concatenate((trainingDataNp, testDataNp), axis=0)
+
+        pcaData = []
+
+        for i in tqdm(range(dataNp.shape[2]), desc="Applying PCA"):
+            # Apply PCA on each feature separately
+            featureSlice = dataNp[:, :, i]
+
+            pca = PCA(n_components=self.explained_variance)
+            featureSliceTransformed = pca.fit_transform(featureSlice)
+
+            pcaData.append(featureSliceTransformed)
+
+        pcaData = np.concatenate(pcaData, axis=1)
+
+        trainingPcaData = pcaData[:maxTrainingIndex]
+
+        training_data.drop(
+            columns=training_data.columns.difference(
+                [
+                    "sample_index",
+                ]
+                + ["isPirate", "isNotPirate"]
+            ),
+            inplace=True,
+        )
+        training_data = training_data.groupby("sample_index").first().reset_index()
+        training_data_pca = pd.DataFrame(trainingPcaData)
+
+        training_data = pd.concat(
+            [training_data.reset_index(drop=True), training_data_pca], axis=1
+        )
+
+        testPcaData = pcaData[maxTrainingIndex:]
+        test_data.drop(
+            columns=test_data.columns.difference(
+                [
+                    "sample_index",
+                ]
+                + ["isPirate", "isNotPirate"]
+            ),
+            inplace=True,
+        )
+        test_data = test_data.groupby("sample_index").first().reset_index()
+        test_data_pca = pd.DataFrame(testPcaData)
+        test_data = pd.concat([test_data.reset_index(drop=True), test_data_pca], axis=1)
+
+        return training_data, test_data
 
     def apply_feature_selection(
         self, training_data: pd.DataFrame, test_data: pd.DataFrame
