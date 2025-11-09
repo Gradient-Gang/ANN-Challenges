@@ -5,6 +5,9 @@ import numpy as np
 import yaml
 from sklearn.decomposition import PCA
 from tqdm.notebook import tqdm
+import seaborn as sns
+
+sns.set_theme()
 
 
 class PreProcessor:
@@ -192,6 +195,28 @@ class PreProcessor:
 
         return npData
 
+    def __plotPcaNumComponentsPerFeature(
+        self, pcadata: list[np.ndarray], feature_names: list[str]
+    ):
+        """
+        Plot the number of PCA components selected per feature.
+        """
+        num_components = [data.shape[1] for data in pcadata]
+
+        plt.figure(figsize=(10, 6))
+        plt.bar(
+            feature_names,
+            num_components,
+            color=sns.color_palette("viridis", len(feature_names)),
+            align="edge",
+        )
+        plt.xlabel("Feature")
+        plt.ylabel("Number of PCA Components")
+        plt.title("PCA Components per Feature")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+
     def apply_pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
         """
         Apply PCA to reduce dimensionality of the data.
@@ -220,6 +245,12 @@ class PreProcessor:
             featureSliceTransformed = pca.fit_transform(featureSlice)
 
             pcaData.append(featureSliceTransformed)
+
+        if self.verbose:
+            feature_names = training_data.columns.difference(
+                ["sample_index", "time", "isPirate", "isNotPirate"]
+            ).tolist()
+            self.__plotPcaNumComponentsPerFeature(pcaData, feature_names)
 
         pcaData = np.concatenate(pcaData, axis=1)
 
