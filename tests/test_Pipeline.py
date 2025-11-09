@@ -92,63 +92,38 @@ def test_build_architecture_autoencoder_split(mock_dataset, mock_test_dataset, m
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
     params = {
         "arch_type": "autoencoder_split",
+        "OutputDim": 10,
         "EncoderParams": {
             "activation_function": "GELU",
-            "layer_type": [
-                {
-                    "name": "Conv2d",
-                    "params": {
-                        "in_channels": 1,
-                        "out_channels": 64,
-                        "kernel_size": 3,
-                        "stride": 1,
-                        "padding": 1,
-                        "dilation": 1,
-                        "groups": 1,
-                        "bias": True,
-                        "padding_mode": "zeros",
-                        "device": None,
-                        "dtype": None
-                    }
+            "layer_type": [{
+                "name": "Conv2d",
+                "params": {
+                    "in_channels": 1,
+                    "out_channels": 64,
+                    "kernel_size": 3
                 }
-            ]
+            }]
         },
         "DecoderParams": {
             "activation_function": "GELU",
-            "layer_type": [
-                {
-                    "name": "ConvTranspose2d",
-                    "params": {
-                        "in_channels": 64,
-                        "out_channels": 1,
-                        "kernel_size": 3,
-                        "stride": 1,
-                        "padding": 1,
-                        "output_padding": 0,
-                        "groups": 1,
-                        "bias": True,
-                        "dilation": 1,
-                        "padding_mode": "zeros",
-                        "device": None,
-                        "dtype": None
-                    }
+            "layer_type": [{
+                "name": "ConvTranspose2d",
+                "params": {
+                    "in_channels": 64,
+                    "out_channels": 1,
+                    "kernel_size": 3
                 }
-            ]
+            }]
         },
         "FeedForwardParams": {
             "activation_function": "GELU",
-            "layer_type": [
-                {
-                    "name": "Linear",
-                    "params": {
-                        "in_features": 784,
-                        "out_features": 10,
-                        "bias": True,
-                        "device": None,
-                        "dtype": None
-                    }
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 784,
+                    "out_features": 10
                 }
-            ]
+            }]
         },
         "LearningRate": 0.001,
         "Patience": 3
@@ -160,63 +135,38 @@ def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, m
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
     params = {
         "arch_type": "autoencoder_joint",
+        "OutputDim": 10,
         "EncoderParams": {
             "activation_function": "GELU",
-            "layer_type": [
-                {
-                    "name": "Conv2d",
-                    "params": {
-                        "in_channels": 1,
-                        "out_channels": 64,
-                        "kernel_size": 3,
-                        "stride": 1,
-                        "padding": 1,
-                        "dilation": 1,
-                        "groups": 1,
-                        "bias": True,
-                        "padding_mode": "zeros",
-                        "device": None,
-                        "dtype": None
-                    }
+            "layer_type": [{
+                "name": "Conv2d",
+                "params": {
+                    "in_channels": 1,
+                    "out_channels": 64,
+                    "kernel_size": 3
                 }
-            ]
+            }]
         },
         "DecoderParams": {
             "activation_function": "GELU",
-            "layer_type": [
-                {
-                    "name": "ConvTranspose2d",
-                    "params": {
-                        "in_channels": 64,
-                        "out_channels": 1,
-                        "kernel_size": 3,
-                        "stride": 1,
-                        "padding": 1,
-                        "output_padding": 0,
-                        "groups": 1,
-                        "bias": True,
-                        "dilation": 1,
-                        "padding_mode": "zeros",
-                        "device": None,
-                        "dtype": None
-                    }
+            "layer_type": [{
+                "name": "ConvTranspose2d",
+                "params": {
+                    "in_channels": 64,
+                    "out_channels": 1,
+                    "kernel_size": 3
                 }
-            ]
+            }]
         },
         "FeedForwardParams": {
             "activation_function": "GELU",
-            "layer_type": [
-                {
-                    "name": "Linear",
-                    "params": {
-                        "in_features": 784,
-                        "out_features": 10,
-                        "bias": True,
-                        "device": None,
-                        "dtype": None
-                    }
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 784,
+                    "out_features": 10
                 }
-            ]
+            }]
         },
         "LearningRate": 0.001,
         "Patience": 3
