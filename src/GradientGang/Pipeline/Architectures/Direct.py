@@ -8,6 +8,7 @@ from torchmetrics import F1Score
 
 class Direct(L.LightningModule):
 
+    # Define the ParameterInterpreter for the Direct class
     DirectInterpreter = ParameterInterpreter(
         name="DirectInterpreter",
         interpretation={
@@ -23,7 +24,19 @@ class Direct(L.LightningModule):
         }
     )
 
-    def __init__(self, params: dict):
+    def __init__(
+        self, params: dict
+    ):
+        """
+        Direct Architecture for classification tasks.
+        Combines an encoder for time series data and a feedforward network for global features.
+        The outputs are concatenated and passed through another feedforward network to produce final predictions.
+        
+        Args:
+            params (dict): Configuration parameters for the architecture.
+        """
+
+        # Initialize the LightningModule and check required parameters
         super().__init__()
         self.DirectInterpreter.checkRequiredParams(params)
 
@@ -58,19 +71,42 @@ class Direct(L.LightningModule):
         self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
 
     def forward(self, x):
+        """
+        Forward pass for Direct architecture.
+        Args:
+            x (tuple): A tuple containing time series data and global features.
+        Returns:
+            torch.Tensor: Predictions with an additional zero column.
+            
+        """
+
+        # Unpack input tuple
         timeSeries = x[0]
         globalFeatures = x[1]
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
+
+        # Combine encoded features and pass through feedforward network
         combined_encoded = torch.cat(
             (encoded_timeSeries, encoded_globalFeatures), dim=1)
         predictions = self.feedforward(combined_encoded)
+
+        # Append a column of zeros to the predictions
         zero_tensor = torch.zeros(
             (predictions.size(0), 1), device=predictions.device)
         predictions = torch.cat((predictions, zero_tensor), dim=-1)
+
+        # Return final predictions
         return predictions
 
     def configure_optimizers(self):
+        """
+        Configure optimizers and learning rate schedulers.
+        Returns:
+            dict: Dictionary containing optimizer and scheduler configurations.
+        """
+
+        # Extract optimizer parameters from self.params
         learning_rate = self.params.get("LearningRate", 0.001)
         patience = self.params.get("Patience", 5)
         regularization_weight = self.params.get("RegularizationWeight", 0.0)
@@ -89,6 +125,16 @@ class Direct(L.LightningModule):
                 }
 
     def training_step(self, batch, batch_idx):
+        """
+        Training step for Direct architecture.
+        Args:
+            batch (tuple): A tuple containing input data and target labels.
+            batch_idx (int): Index of the current batch.
+        Returns:
+            torch.Tensor: Computed loss for the batch.
+        """
+
+        # Unpack batch
         x, y = batch
         predictions = self.forward(x)
 
@@ -106,6 +152,14 @@ class Direct(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        """
+        Validation step for Direct architecture.
+        Args:
+            batch (tuple): A tuple containing input data and target labels.
+            batch_idx (int): Index of the current batch.
+        Returns:
+            float: Computed F1 score for the batch.
+        """
         x, y = batch
         predictions = self.forward(x)
 
@@ -116,5 +170,7 @@ class Direct(L.LightningModule):
         return f1_score
 
     def on_validation_epoch_end(self):
-        """Reset F1 metric at the end of each validation epoch."""
+        """
+        Reset F1 metric at the end of each validation epoch.
+        """
         self.val_f1.reset()
