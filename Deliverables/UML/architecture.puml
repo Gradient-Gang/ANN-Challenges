@@ -1,0 +1,179 @@
+@startuml GradientGang Architecture
+
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+package "GradientGang" {
+    
+    package "PreProcessing" {
+        class PreProcessor {
+            + {static} fromYAML(path: str): PreProcessor
+            + __init__(params: dict)
+            + load_data(file_name: str): DataFrame
+            + save_data(data, file_name: str)
+            + remove_last_column(data: DataFrame): DataFrame
+            + handle_is_pirate_features(data: DataFrame): DataFrame
+            + normalize_per_process(training_data: DataFrame, test_data: DataFrame)
+            + plot_one_time_series(data: DataFrame, number: int)
+            - __aggregate_time_series(data: DataFrame, primaryKeyColumn: str, timeColumn: str, extraColumns: list): ndarray
+            - __plotPcaNumComponentsPerFeature(pcadata: list, feature_names: list)
+            + apply_pca(training_data: DataFrame, test_data: DataFrame)
+            + apply_feature_selection(training_data: DataFrame, test_data: DataFrame)
+            + preprocess()
+        }
+    }
+
+    package "Pipeline" {
+        
+        class Pipeline {
+            - dataset: LightningDataModule
+            - test: LightningDataModule
+            - optimizer: Optimizer
+            - config: dict
+            + __init__(dataset, test, optimizer, dict_config, path_config)
+            + build_architecture(params: dict): LightningModule
+        }
+
+        package "DataLoader" {
+            class TimeSeriesAndGlobalDataset {
+                + {static} fromCSV(dataPath, labelsPath, primaryKeyColumn, globalColumns, timeSeriesColumns, labelMapping): TimeSeriesAndGlobalDataset
+                + __init__(timeSeries, globalFeatures, labels)
+                + __len__(): int
+                + __getitem__(idx): tuple
+            }
+
+            class PiratePainDataModule {
+                + __init__(trainDataset, valDataset, testDataset, batchSize, numWorkers)
+                + train_dataloader(): DataLoader
+                + val_dataloader(): DataLoader
+                + test_dataloader(): DataLoader
+            }
+        }
+
+        package "Architectures" {
+            abstract class LightningModule {
+            }
+
+            class LightningAutoencoder {
+                - encoder: Encoder
+                - globalff_encoder: FeedForward
+                - decoder: Decoder
+                - globalff_decoder: FeedForward
+                - feedforward: FeedForward
+                + __init__(params: dict)
+                + forward(timeSeries, globalFeatures)
+                + training_step(batch, batch_idx)
+                + validation_step(batch, batch_idx)
+                + configure_optimizers()
+            }
+
+            class Direct {
+                - encoder: Encoder
+                - globalff_encoder: FeedForward
+                - feedforward: FeedForward
+                + __init__(params: dict)
+                + forward(timeSeries, globalFeatures)
+                + training_step(batch, batch_idx)
+                + validation_step(batch, batch_idx)
+                + configure_optimizers()
+            }
+
+            class Encoder {
+                - net: Sequential
+                + __init__(params, num_input_channels, base_channel_size, latent_dim, act_fn)
+                + forward(x)
+            }
+
+            class Decoder {
+                - net: Sequential
+                + __init__(params, num_input_channels, base_channel_size, latent_dim, act_fn)
+                + forward(x)
+            }
+
+            class FeedForward {
+                - layers: ModuleList
+                + __init__(params: dict)
+                + forward(x)
+            }
+        }
+
+        package "Optimizer" {
+            abstract class Optimizer {
+                + {abstract} optimize(architecture_builder)
+            }
+
+            class OptunaOptimizer {
+                + optimize(architecture_builder, params, n_trials): Study
+                + objective(trial): float
+                - getParams(params: dict, trial): dict
+            }
+        }
+
+        package "Utils" {
+            class ParameterInterpreter {
+                - interpretation: dict
+                - name: str
+                - requiredParams: dict
+                + __init__(interpretation, name, requiredParams)
+                + checkRequiredParams(params: dict)
+                + interpret(param_name: str)
+            }
+        }
+
+        package "SubmissionGenerator" {
+            class SubmissionGenerator {
+                - model: LightningModule
+                - dataloader: DataLoader
+                - label_mapping: dict
+                + __init__(model, dataloader, label_mapping)
+                + generate_predictions(): Tensor
+                + generate_submission(output_path: str, sample_indices)
+            }
+        }
+    }
+
+    package "ExampleMINST" {
+        class MNISTDataLoader {
+        }
+        class basics {
+        }
+    }
+
+    package "DataExploration" {
+        note "Jupyter Notebooks:\n- DataCleaning.ipynb\n- DataVisualization.ipynb\n- RandomAnalysis.ipynb" as N1
+    }
+}
+
+' Relationships
+Pipeline --> Optimizer : uses
+Pipeline --> LightningModule : creates
+Pipeline --> ParameterInterpreter : uses
+Pipeline *-- PiratePainDataModule : contains
+
+LightningAutoencoder --|> LightningModule
+Direct --|> LightningModule
+
+LightningAutoencoder *-- Encoder
+LightningAutoencoder *-- Decoder
+LightningAutoencoder *-- FeedForward
+
+Direct *-- Encoder
+Direct *-- FeedForward
+
+OptunaOptimizer --|> Optimizer
+
+Encoder ..> ParameterInterpreter : validates with
+Decoder ..> ParameterInterpreter : validates with
+FeedForward ..> ParameterInterpreter : validates with
+LightningAutoencoder ..> ParameterInterpreter : validates with
+Direct ..> ParameterInterpreter : validates with
+
+SubmissionGenerator --> LightningModule : uses
+SubmissionGenerator --> PiratePainDataModule : uses
+
+PiratePainDataModule *-- TimeSeriesAndGlobalDataset : contains
+
+PreProcessor ..> "pandas" : uses
+PreProcessor ..> "sklearn.decomposition.PCA" : uses
+
+@enduml

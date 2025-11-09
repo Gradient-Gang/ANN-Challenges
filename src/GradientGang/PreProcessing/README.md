@@ -3,17 +3,9 @@
 ## Description
 The PreProcessing module provides a comprehensive data preprocessing pipeline for the pirate pain dataset. It handles data loading, feature engineering, normalization, dimensionality reduction, and visualization. The module is configured via YAML files for reproducible preprocessing workflows.
 
-## Main Class: `PreProcessing`
+## Main Class: `PreProcessor`
 
-### Methods
-
-#### `__init__(self, path_params: str)`
-Initialize the PreProcessing class by loading parameters from a YAML file.
-
-**Parameters:**
-- `path_params` (str): Path to YAML configuration file
-
-**Configuration Parameters:**
+### Configuration Parameters
 - `path_raw_data` (str): Directory containing raw CSV files
 - `path_processed_data` (str): Directory for saving processed files
 - `name_train_file` (str): Training data filename (default: "train.csv")
@@ -29,134 +21,23 @@ Initialize the PreProcessing class by loading parameters from a YAML file.
 
 ---
 
-#### `load_data(self, file_name: str) -> pd.DataFrame`
-Load data from a CSV file.
+### Methods
 
-**Parameters:**
-- `file_name` (str): Name of CSV file (in path_raw_data directory)
-
-**Returns:**
-- `pd.DataFrame`: Loaded data
-
----
-
-#### `save_data(self, data, file_name: str)`
-Save data to a CSV file.
-
-**Parameters:**
-- `data` (pd.DataFrame or np.ndarray): Data to save
-- `file_name` (str): Name of output CSV file (in path_processed_data directory)
-
-**Note:** Automatically converts numpy arrays to DataFrames
-
----
-
-#### `remove_last_column(self, data: pd.DataFrame) -> pd.DataFrame`
-Remove the last column from the DataFrame.
-
-**Parameters:**
-- `data` (pd.DataFrame): Input data
-
-**Returns:**
-- `pd.DataFrame`: Data with last column removed
-
----
-
-#### `handle_inspirate_features(self, data: pd.DataFrame) -> pd.DataFrame`
-Handle pirate-specific features (n_legs, n_hands, n_eyes).
-
-**Parameters:**
-- `data` (pd.DataFrame): Input data with pirate features
-
-**Returns:**
-- `pd.DataFrame`: Processed data
-
-**Behavior:**
-- If `drop_all_is_pirate=True`: Drops n_legs, n_hands, n_eyes
-- If `one_hot_encode=True`: One-hot encodes n_eyes, drops n_legs and n_hands
-- Default: Maps n_eyes to numeric ("two"→2, "one+eye_patch"→1), drops other pirate features
-
----
-
-#### `normalize_per_process(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]`
-Normalize numerical features to zero mean and unit variance.
-
-**Parameters:**
-- `training_data` (pd.DataFrame): Training data
-- `test_data` (pd.DataFrame): Test data
-
-**Returns:**
-- `Tuple[pd.DataFrame, pd.DataFrame]`: (normalized_train, normalized_test)
-
-**Behavior:**
-- Uses training statistics (mean, std) for both train and test
-- Handles constant features (zero std) by centering only
-- Processes only numeric columns
-
----
-
-#### `plot_one_time_series(self, data: pd.DataFrame, number: int)`
-Plot time series visualizations for selected samples.
-
-**Parameters:**
-- `data` (pd.DataFrame): Data with time series features
-- `number` (int): Number of samples to plot
-
-**Plots:**
-- pain_survey_1, pain_survey_2, pain_survey_3, pain_survey_4
-- joint_00, joint_01, joint_28, joint_29
-
----
-
-#### `apply_pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]`
-Apply PCA for dimensionality reduction.
-
-**Parameters:**
-- `training_data` (pd.DataFrame): Training data
-- `test_data` (pd.DataFrame): Test data
-
-**Returns:**
-- `Tuple[np.ndarray, np.ndarray]`: (train_pca, test_pca)
-
-**Behavior:**
-- Fits PCA on training data
-- Transforms both train and test
-- Uses explained_variance parameter from config
-
----
-
-#### `apply_feature_selection(self, training_data: pd.DataFrame, test_data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]`
-Select specific features from the data.
-
-**Parameters:**
-- `training_data` (pd.DataFrame): Training data
-- `test_data` (pd.DataFrame): Test data
-
-**Returns:**
-- `Tuple[pd.DataFrame, pd.DataFrame]`: (selected_train, selected_test)
-
-**Raises:**
-- `ValueError`: If feature_selected is not set in config
-
----
-
-#### `preprocess(self)`
-Main preprocessing function to load, process, and save data.
-
-**Workflow:**
-1. Load train, test, and label files
-2. Remove last column
-3. Handle pirate features
-4. Plot time series (if verbose=True)
-5. Normalize data
-6. Plot normalized time series (if verbose=True)
-7. Apply PCA (if enabled)
-8. Apply feature selection (if enabled)
-9. Save processed data
-
-**Error Handling:**
-- Prints error messages at each step
-- Continues execution when possible (e.g., plotting errors)
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `fromYaml` | `path: str` | `PreProcessor` | Builds a PreProcessor from a YAML file. |
+| `__init__` | `params: dict` | - | Initialize the PreProcessor with given parameters. |
+| `load_data` | `file_name: str` | `pd.DataFrame` | Load data from a CSV file. |
+| `save_data` | `data`<br>`file_name: str` | - | Save data to a CSV file. |
+| `remove_last_column` | `data: pd.DataFrame` | `pd.DataFrame` | Remove the last column from the DataFrame. |
+| `handle_is_pirate_features` | `data: pd.DataFrame` | `pd.DataFrame` | Handle isPirate features by dropping or encoding them. |
+| `normalize_per_process` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | Normalized data | Normalize numerical features to have zero mean and unit variance. |
+| `plot_one_time_series` | `data: pd.DataFrame`<br>`number: int` | - | Plot a single time series from the DataFrame. |
+| `__aggregate_time_series` | `data: pd.DataFrame`<br>`primaryKeyColumn: str`<br>`timeColumn: str`<br>`extraColumns: list[str]` | `np.ndarray` | Aggregate time series data into a 3D NumPy array. |
+| `__plotPcaNumComponentsPerFeature` | `pcadata: list[np.ndarray]`<br>`feature_names: list[str]` | - | Plot the number of PCA components selected per feature. |
+| `apply_pca` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | PCA-transformed data | Apply PCA to reduce dimensionality of the data. |
+| `apply_feature_selection` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | Feature-selected data | Select specific features from the data. |
+| `preprocess` | - | - | Main preprocessing function to load, process, and save data. |
 
 ---
 

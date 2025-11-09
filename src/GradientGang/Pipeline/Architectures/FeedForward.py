@@ -4,6 +4,7 @@ from ..Utils.ParameterInterpreter import ParameterInterpreter
 
 class FeedForward(nn.Module):
 
+    # Define the ParameterInterpreter for the FeedForward class
     feedforwardInterpreter: ParameterInterpreter = ParameterInterpreter(
         name="FeedForwardInterpreter",
         interpretation={
@@ -123,4 +124,13 @@ class FeedForward(nn.Module):
         self.network = nn.Sequential(*modules)
 
     def forward(self, x):
+        """
+        Forward pass for FeedForward network.
+        
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after passing through the network.
+        """
         return self.network(x)

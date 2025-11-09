@@ -9,9 +9,10 @@ from torchmetrics import F1Score
 
 class LightningAutoencoder(L.LightningModule):
 
+    # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={"LearningRate": float, "Patience": int},
+        interpretation={},
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -19,10 +20,22 @@ class LightningAutoencoder(L.LightningModule):
             "GlobalFFDecoderParams": dict,
             "FeedForwardParams": dict,
             "OutputDim": int,
+            "LearningRate": float,
+            "Patience": int,
+            "RegularizationWeight": float,
         },
     )
 
     def __init__(self, params: dict):
+        """
+        Lightning Autoencoder Architecture for combined time series and global feature data.
+        Combines an encoder-decoder for time series data and a feedforward network for global features.
+        The outputs are concatenated and passed through another feedforward network to produce final predictions.
+        Args:
+            params (dict): Configuration parameters for the architecture.
+        """
+
+        # Initialize the LightningModule and check required parameters
         super().__init__()
         self.LightningAutoencoderInterpreter.checkRequiredParams(params)
 
@@ -43,6 +56,7 @@ class LightningAutoencoder(L.LightningModule):
         num_output_channels = params.get("num_output_channels", 1)
         act_fn = params.get("act_fn", torch.nn.GELU)
 
+        # Initialize the Encoder, Decoder, and FeedForward networks
         self.encoder = Encoder(
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn
         )
@@ -72,6 +86,14 @@ class LightningAutoencoder(L.LightningModule):
         )
 
     def forward(self, x):
+        """
+        Forward pass for Lightning Autoencoder architecture.
+        Args:
+            x (tuple): A tuple containing time series data and global features.
+        Returns:
+            tuple: Predictions and a tuple of decoded time series and decoded global features.
+        """
+
         # Store original sequence length for decoder reconstruction
         timeSeries = x[0]
         globalFeatures = x[1]
@@ -94,10 +116,19 @@ class LightningAutoencoder(L.LightningModule):
         return predictions, (decoded, decoded_globalFeatures)
 
     def configure_optimizers(self):
+        """
+        Configure optimizers and learning rate schedulers.
+        Returns:
+            dict: Dictionary containing optimizer and scheduler configurations.
+        """
+
         learning_rate = self.params.get("LearningRate", 0.001)
         patience = self.params.get("Patience", 5)
+        regularization_weight = self.params.get("RegularizationWeight", 0.0)
 
-        optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate)
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=learning_rate, weight_decay=regularization_weight
+        )
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -109,11 +140,20 @@ class LightningAutoencoder(L.LightningModule):
         }
 
     def training_step(self, batch, batch_idx):
+        """
+        Training step for Lightning Autoencoder architecture.
+        Args:
+            batch (tuple): A tuple containing input data and target labels.
+            batch_idx (int): Index of the current batch.
+        Returns:
+            torch.Tensor: Computed loss for the batch.
+        """
+
         x, y = batch
         predictions, (decoded, decoded_globalFeatures) = self.forward(x)
         timeSeries = x[0]
         globalFeatures = x[1]
-        # Compute reconstruction loss (safely handle None)
+        # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
         device = (
             timeSeries.device if (timeSeries is not None) else torch.device(self.device)
@@ -160,6 +200,15 @@ class LightningAutoencoder(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        """
+        Validation step for Lightning Autoencoder architecture.
+        Args:
+            batch (tuple): A tuple containing input data and target labels.
+            batch_idx (int): Index of the current batch.
+        Returns:
+            float: Computed F1 score for the batch.
+        """
+
         x, y = batch
         predictions, (decoded, decoded_globalFeatures) = self.forward(x)
         timeSeries = x[0]
@@ -210,11 +259,19 @@ class LightningAutoencoder(L.LightningModule):
             return None
 
     def on_validation_epoch_end(self):
-        """Reset F1 metric at the end of each validation epoch."""
+        """
+        Reset F1 metric at the end of each validation epoch.
+        """
         self.val_f1.reset()
 
     def get_embeddings(self, x):
-        """Get latent embeddings from the encoder using no_grad."""
+        """
+        Get latent embeddings from the encoder using no_grad.
+        Args:
+            x (torch.Tensor): Input tensor.
+        Returns:
+            torch.Tensor: Latent embeddings from the encoder.
+        """
         with torch.no_grad():
             embeddings = self.encoder(x)
         return embeddings
