@@ -141,7 +141,7 @@ class Direct(L.LightningModule):
         if y is not None:
             # Define class weights - adjust these values based on your class distribution
             class_weights = torch.tensor(
-                [1.0] * predictions.size(1), device=x.device)
+                [1.0] * predictions.size(1), device=predictions.device)
             loss_fn_prediction = torch.nn.CrossEntropyLoss(
                 weight=class_weights)
             loss = loss_fn_prediction(predictions, y)
