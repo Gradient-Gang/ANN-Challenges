@@ -1,31 +1,102 @@
 import pytorch_lightning as L
 import torch
-from torch.utils.data import DataLoader as TorchDataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader as TorchDataLoader, Dataset, random_split
 import pandas as pd
 import os
+import numpy as np
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 
-DataLoaderInterpreter = ParameterInterpreter(
-    name="DataLoaderInterpreter",
-    interpretation={
-        "data_dir": str,
-        "train_file_name": str,
-        "train_file_name_labels": str,
-        "test_file_name": str,
-        "batch_size": int,
-        "num_workers": int,
-        "val_split": float,
-        "label_mapping": dict
-    },
-    requiredParams={
-        "data_dir": str,
-        "train_file_name": str,
-        "train_file_name_labels": str,
-        "test_file_name": str,
-        "batch_size": int,
-        "num_workers": int,
-    }
-)
+
+class TimeSeriesAndGlobalDataset(Dataset):
+    @staticmethod
+    def fromCSV(
+        dataPath: str,
+        labelsPath: str | None = None,
+        primaryKeyColumn: str = "sample_index",
+        globalColumns: list[str] = [],
+        timeSeriesColumns: list[str] | None = None,
+        labelMapping: list[str] = ["no_pain", "low_pain", "high_pain"],
+    ) -> "TimeSeriesAndGlobalDataset":
+        # Load data from CSV
+        data_df = pd.read_csv(dataPath)
+
+        globalColumns = data_df.columns.intersection(globalColumns).tolist()
+
+        if "time" in data_df.columns:
+            globalFeatures = (
+                data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
+            )
+            globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+
+            if timeSeriesColumns is None:
+                timeSeriesColumns = data_df.columns.difference(
+                    [primaryKeyColumn, "time"] + globalColumns
+                ).tolist()
+
+            timeSeriesDF = data_df[[primaryKeyColumn, "time"] + timeSeriesColumns]
+            timeSeries = np.stack(
+                [
+                    timeSeriesDF.pivot(
+                        index=primaryKeyColumn, columns="time", values=feat
+                    ).to_numpy()
+                    for feat in timeSeriesColumns
+                ],
+                axis=-1,
+            )
+            timeSeries = torch.tensor(timeSeries, dtype=torch.float32)
+        else:
+            globalFeatures = data_df[globalColumns].to_numpy()
+            globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+            timeSeries = None
+
+        if labelsPath is not None:
+            labels_df = pd.read_csv(labelsPath)
+            # Map string labels to integers if necessary
+            labels_df["label"] = labels_df["label"].map(
+                {label: idx for idx, label in enumerate(labelMapping)}
+            )
+            labels = torch.tensor(labels_df["label"].to_numpy(), dtype=torch.long)
+
+            # one hot encoding
+            labelsOneHot = torch.zeros(
+                (labels.shape[0], len(labelMapping)), dtype=torch.float32
+            )
+            labelsOneHot.scatter_(1, labels.unsqueeze(1), 1.0)
+
+            labels = labelsOneHot
+        else:
+            labels = None
+
+        return TimeSeriesAndGlobalDataset(timeSeries, globalFeatures, labels)
+
+    def __init__(
+        self,
+        time_series_data: torch.Tensor | None,
+        global_data: torch.Tensor,
+        labels: torch.Tensor | None,
+    ):
+        if time_series_data is not None:
+            assert len(time_series_data) == len(
+                global_data
+            ), "All inputs must have the same number of samples."
+
+        if labels is not None:
+            assert len(global_data) == len(
+                labels
+            ), "All inputs must have the same number of samples."
+
+        self.time_series_data = time_series_data
+        self.global_data = global_data
+        self.labels = labels
+
+    def __len__(self):
+        return self.global_data.shape[0]
+
+    def __getitem__(self, index):
+        return (
+            self.time_series_data[index] if self.time_series_data is not None else None,
+            self.global_data[index],
+        ), (self.labels[index] if self.labels is not None else None)
 
 
 class DataModule(L.LightningDataModule):
@@ -34,9 +105,29 @@ class DataModule(L.LightningDataModule):
     Supports training, validation, and testing splits, as well as label mapping.
     """
 
+    DataLoaderInterpreter = ParameterInterpreter(
+        name="DataLoaderInterpreter",
+        interpretation={},
+        requiredParams={
+            "data_dir": str,
+            "train_file_name": str,
+            "train_file_name_labels": str,
+            "test_file_name": str,
+            "batch_size": int,
+            "num_workers": int,
+            "data_dir": str,
+            "train_file_name": str,
+            "train_file_name_labels": str,
+            "test_file_name": str,
+            "batch_size": int,
+            "num_workers": int,
+            "val_split": float,
+        },
+    )
+
     def __init__(self, params: dict):
         super().__init__()
-        DataLoaderInterpreter.checkRequiredParams(params)
+        self.DataLoaderInterpreter.checkRequiredParams(params)
 
         self.data_dir = params.get("data_dir", "")
         self.train_file_name = params.get("train_file_name", "")
@@ -45,87 +136,55 @@ class DataModule(L.LightningDataModule):
         self.batch_size = params.get("batch_size", 32)
         self.num_workers = params.get("num_workers", 0)
         self.val_split = params.get("val_split", 0.1)
-        
+
+        self.globalFeaturesColumns = params.get(
+            "globalFeaturesColumns", ["isPirate", "isNotPirate"]
+        )
+        self.primaryKeyColumn = params.get("primaryKeyColumn", "sample_index")
+        self.timeSeriesColumns = params.get("timeSeriesColumns", None)
+
         # Label mapping for converting string labels to integers
         # Default mapping for pirate pain dataset
-        self.label_mapping = params.get("label_mapping", {
-            "no_pain": 0,
-            "low_pain": 1,
-            "high_pain": 2
-        })
-        
-        # Datasets will be initialized in setup()
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
+        self.label_mapping = params.get(
+            "label_mapping", {"no_pain": 0, "low_pain": 1, "high_pain": 2}
+        )
 
-    def load_from_csv(self, file_path: str, label_file_path: str = None):
-        """
-        Load data from CSV files and convert to PyTorch tensors.
-        """
-        # Load features
-        features_df = pd.read_csv(file_path)
-        
-        # Remove non-numeric columns if present (e.g., sample_index, time)
-        numeric_cols = features_df.select_dtypes(include=['float64', 'float32', 'int64', 'int32']).columns
-        features_df = features_df[numeric_cols]
-        
-        # Convert to tensor
-        features_tensor = torch.tensor(features_df.values, dtype=torch.float32)
-        
-        # Load labels if provided
-        if label_file_path is not None:
-            labels_df = pd.read_csv(label_file_path)
-            
-            # Check if labels need to be mapped from strings to integers
-            if 'label' in labels_df.columns:
-                if labels_df['label'].dtype == 'object':  # String labels
-                    labels_df['label'] = labels_df['label'].map(self.label_mapping)
-                labels_tensor = torch.tensor(labels_df['label'].values, dtype=torch.long)
-            else:
-                # Assume the first column after sample_index is the label
-                label_col = labels_df.columns[-1] if 'sample_index' in labels_df.columns else labels_df.columns[0]
-                labels_tensor = torch.tensor(labels_df[label_col].values, dtype=torch.long)
-        else:
-            labels_tensor = None
-            
-        return features_tensor, labels_tensor
-
-    def setup(self, stage: str = None):
+    def setup(self, stage: str | None = None):
         """
         Setup datasets for training, validation, and testing.
         """
-        if stage == 'fit' or stage is None:
-            # Load training data and labels
-            train_path = os.path.join(self.data_dir, self.train_file_name)
-            train_labels_path = os.path.join(self.data_dir, self.train_file_name_labels)
-            
-            features, labels = self.load_from_csv(train_path, train_labels_path)
-            
-            # Create full training dataset
-            full_dataset = TensorDataset(features, labels)
-            
+        if stage == "fit" or stage is None:
+            full_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+                dataPath=os.path.join(self.data_dir, self.train_file_name),
+                labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
+                labelMapping=list(self.label_mapping.keys()),
+                globalColumns=self.globalFeaturesColumns,
+                primaryKeyColumn=self.primaryKeyColumn,
+                timeSeriesColumns=self.timeSeriesColumns,
+            )
+
             # Split into train and validation
             val_size = int(len(full_dataset) * self.val_split)
             train_size = len(full_dataset) - val_size
-            
+
             self.train_dataset, self.val_dataset = random_split(
-                full_dataset, 
-                [train_size, val_size],
-                generator=torch.Generator().manual_seed(42)  # For reproducibility
+                full_dataset,
+                [
+                    train_size,
+                    val_size,
+                ],
+                generator=torch.Generator().manual_seed(42),  # For reproducibility
             )
-            
-        if stage == 'test' or stage is None:
-            # Load test data (usually without labels)
-            test_path = os.path.join(self.data_dir, self.test_file_name)
-            
-            features, labels = self.load_from_csv(test_path, None)
-            
-            # If no labels, create dummy labels for compatibility
-            if labels is None:
-                labels = torch.zeros(len(features), dtype=torch.long)
-                
-            self.test_dataset = TensorDataset(features, labels)
+
+        if stage == "test" or stage is None:
+            self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+                dataPath=os.path.join(self.data_dir, self.test_file_name),
+                labelsPath=None,
+                labelMapping=list(self.label_mapping.keys()),
+                globalColumns=self.globalFeaturesColumns,
+                primaryKeyColumn=self.primaryKeyColumn,
+                timeSeriesColumns=self.timeSeriesColumns,
+            )
 
     def train_dataloader(self):
         """
@@ -133,14 +192,14 @@ class DataModule(L.LightningDataModule):
         """
         if self.train_dataset is None:
             raise RuntimeError("Training dataset not initialized. Call setup() first.")
-            
+
         return TorchDataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
             persistent_workers=self.num_workers > 0,
-            pin_memory=torch.cuda.is_available()
+            pin_memory=torch.cuda.is_available(),
         )
 
     def val_dataloader(self):
@@ -148,15 +207,17 @@ class DataModule(L.LightningDataModule):
         Create validation dataloader.
         """
         if self.val_dataset is None:
-            raise RuntimeError("Validation dataset not initialized. Call setup() first.")
-            
+            raise RuntimeError(
+                "Validation dataset not initialized. Call setup() first."
+            )
+
         return TorchDataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=self.num_workers > 0,
-            pin_memory=torch.cuda.is_available()
+            pin_memory=torch.cuda.is_available(),
         )
 
     def test_dataloader(self):
@@ -165,18 +226,18 @@ class DataModule(L.LightningDataModule):
         """
         if self.test_dataset is None:
             raise RuntimeError("Test dataset not initialized. Call setup() first.")
-            
+
         return TorchDataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=self.num_workers > 0,
-            pin_memory=torch.cuda.is_available()
+            pin_memory=torch.cuda.is_available(),
         )
 
     def predict_dataloader(self):
         """
         Create prediction dataloader (uses test dataset).
         """
-        return self.test_dataloader() 
+        return self.test_dataloader()

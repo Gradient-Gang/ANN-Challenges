@@ -11,11 +11,11 @@ name_train_labels_file: "pirate_pain_train_labels.csv"
 
 # Is pirate features
 drop_all_is_pirate: false
-one_hot_encode: true
+one_hot_encode: false
 
 # Feature extraction
-PCA : true
-explained_variance: 0.95
+PCA : false
+explained_variance: 0.98
 
 # Feature selection
 feature_selection: false
