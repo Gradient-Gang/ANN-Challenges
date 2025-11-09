@@ -23,10 +23,25 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
         globalColumns = data_df.columns.intersection(globalColumns).tolist()
 
+        globalFeatures = (
+            data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
+        )
+        globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+
+        if timeSeriesColumns is None:
+            timeSeriesColumns = data_df.columns.difference(
+                [primaryKeyColumn, "time"] + globalColumns
+            ).tolist()
+
+        # Normalize/validate globalColumns list
+        globalColumns = data_df.columns.intersection(globalColumns).tolist()
+
+        # Build an ordered list of sample primary keys and features
         if "time" in data_df.columns:
-            globalFeatures = (
-                data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
-            )
+            # Use groupby first to obtain one row per sample and capture the sample order
+            grouped = data_df.groupby(primaryKeyColumn).first()
+            sample_ids = grouped.index.to_numpy()
+            globalFeatures = grouped[globalColumns].to_numpy()
             globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
 
             if timeSeriesColumns is None:
@@ -35,40 +50,49 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 ).tolist()
 
             timeSeriesDF = data_df[[primaryKeyColumn, "time"] + timeSeriesColumns]
-            timeSeries = np.stack(
-                [
-                    timeSeriesDF.pivot(
-                        index=primaryKeyColumn, columns="time", values=feat
-                    ).to_numpy()
-                    for feat in timeSeriesColumns
-                ],
-                axis=-1,
-            )
+            # Pivot each feature and reindex to ensure the same sample order as grouped
+            timeSeries_list = []
+            for feat in timeSeriesColumns:
+                pivoted = timeSeriesDF.pivot(
+                    index=primaryKeyColumn, columns="time", values=feat
+                ).reindex(sample_ids)
+                timeSeries_list.append(pivoted.to_numpy())
+
+            timeSeries = np.stack(timeSeries_list, axis=-1)
             timeSeries = torch.tensor(timeSeries, dtype=torch.float32)
             timeSeries = timeSeries.permute(0, 2, 1)  # (samples, features, time)
         else:
+            # No time-series dimension; preserve row order
+            if primaryKeyColumn in data_df.columns:
+                sample_ids = data_df[primaryKeyColumn].to_numpy()
+            else:
+                sample_ids = np.arange(len(data_df))
+
             globalFeatures = data_df[globalColumns].to_numpy()
             globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
             timeSeries = None
 
+        # Load and align labels to the sample order (use -1 for unlabeled)
         if labelsPath is not None:
             labels_df = pd.read_csv(labelsPath)
-            # Map string labels to integers if necessary
-            labels_df["label"] = labels_df["label"].map(
-                {label: idx for idx, label in enumerate(labelMapping)}
-            )
-            labels = torch.tensor(labels_df["label"].to_numpy(), dtype=torch.long)
+            # Map textual labels to integers
+            label_map = {label: idx for idx, label in enumerate(labelMapping)}
 
-            # one hot encoding
-            labelsOneHot = torch.zeros(
-                (labels.shape[0], len(labelMapping)), dtype=torch.float32
-            )
-            labelsOneHot.scatter_(1, labels.unsqueeze(1), 1.0)
+            if primaryKeyColumn in labels_df.columns:
+                labels_series = labels_df.set_index(primaryKeyColumn)["label"].map(
+                    label_map
+                )
+            else:
+                # If no primary key in labels file, assume same order as samples
+                labels_series = labels_df["label"].map(label_map)
 
-            labels = labelsOneHot
+            # Align labels to sample_ids and fill missing with -1
+            labels_aligned = (
+                pd.Series(sample_ids).map(labels_series).fillna(-1).astype(int)
+            )
+            labels = torch.tensor(labels_aligned.to_numpy(), dtype=torch.long)
         else:
-            labels = torch.empty(size=(globalFeatures.shape[0], len(labelMapping)))
-            labels = torch.fill_(labels, float("nan"))
+            labels = torch.full((len(sample_ids),), -1, dtype=torch.long)
 
         return TimeSeriesAndGlobalDataset(timeSeries, globalFeatures, labels)
 
@@ -160,7 +184,8 @@ class DataModule(L.LightningDataModule):
         Setup datasets for training, validation, and testing.
         """
         if stage == "fit" or stage is None:
-            train_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+            # Load labeled training dataset and unlabeled test dataset separately
+            labeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
                 labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
                 labelMapping=list(self.label_mapping.keys()),
@@ -169,7 +194,7 @@ class DataModule(L.LightningDataModule):
                 timeSeriesColumns=self.timeSeriesColumns,
             )
 
-            test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+            unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
                 labelMapping=list(self.label_mapping.keys()),
@@ -178,20 +203,18 @@ class DataModule(L.LightningDataModule):
                 timeSeriesColumns=self.timeSeriesColumns,
             )
 
-            full_dataset = train_dataset + test_dataset
+            # Split labeled dataset into train/val (do not mix unlabeled test into this split)
+            val_size = int(len(labeled_dataset) * self.val_split)
+            train_size = len(labeled_dataset) - val_size
 
-            # Split into train and validation
-            val_size = int(len(full_dataset) * self.val_split)
-            train_size = len(full_dataset) - val_size
-
-            self.train_dataset, self.val_dataset = random_split(
-                full_dataset,
-                [
-                    train_size,
-                    val_size,
-                ],
+            self.train_labeled, self.val_dataset = random_split(
+                labeled_dataset,
+                [train_size, val_size],
                 generator=torch.Generator().manual_seed(42),  # For reproducibility
             )
+
+            # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
+            self.train_dataset = ConcatDataset([self.train_labeled, unlabeled_dataset])
 
         if stage == "test" or stage is None:
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
