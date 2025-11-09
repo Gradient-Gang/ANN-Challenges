@@ -6,13 +6,26 @@ import yaml
 import sklearn
 
 
-class PreProcessing:
-    def __init__(self, path_params: str):
+class PreProcessor:
+    @staticmethod
+    def fromYAML(path: str):
+        """Builds a PreProcessor from a YAML file
+
+        Args:
+            path (str): The path of the YAML file
+
+        Returns:
+            PreProcessor: The built PreProcessor
+        """
+        with open(path, "r") as f:
+            params = yaml.safe_load(f)
+        return PreProcessor(params)
+
+    def __init__(self, params: dict):
         """
         Initialize the PreProcessing class by loading parameters from a YAML file.
         """
-        with open(path_params, "r") as f:
-            self.params = yaml.safe_load(f)
+        self.params = params
 
         # paths
         self.path_raw_data = self.params.get("path_raw_data", "")
