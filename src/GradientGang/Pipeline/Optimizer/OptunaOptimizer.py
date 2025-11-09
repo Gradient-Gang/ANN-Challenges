@@ -1,6 +1,6 @@
 import optuna
 import lightning as L
-from pytorch_lightning.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 import types
 from . import Optimizer
 from ..Utils.ParameterInterpreter import ParameterInterpreter
@@ -46,14 +46,11 @@ class OptunaOptimizer (Optimizer.Optimizer):
         params = self.getParams(self.params, trial)
 
         arch: L.LightningModule = self.build_architecture(params)
-        
-        checkpoint_callback = ModelCheckpoint(
-            monitor='val_f1',
-            mode='max',  # since you want to maximize F1
-            save_top_k=1
-        )
 
-        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback])
+        early_stopping = EarlyStopping(monitor="val_f1", patience=10, mode="max")
+        checkpoint_callback = ModelCheckpoint(monitor="val_f1", mode="max")
+
+        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping])
         trainer.fit(arch, self.train_data, self.val_data)
 
         return checkpoint_callback.best_model_score
