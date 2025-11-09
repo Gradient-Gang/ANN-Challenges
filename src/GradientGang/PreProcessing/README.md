@@ -25,19 +25,19 @@ The PreProcessing module provides a comprehensive data preprocessing pipeline fo
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `fromYaml(path: str)` | `path` (str): Path to YAML configuration file | `PreProcessor`: Instance initialized with YAML parameters | Builds a PreProcessor from a YAML file. |
-| `__init__(self, params: dict)` | `params` (dict): Dictionary containing configuration parameters | - | Initialize the PreProcessor with given parameters. |
-| `load_data(self, file_name: str)` | `file_name` (str): Name of CSV file (in path_raw_data directory) | `pd.DataFrame`: Loaded data | Load data from a CSV file. |
-| `save_data(self, data, file_name: str)` | `data` (pd.DataFrame or np.ndarray): Data to save<br>`file_name` (str): Name of output CSV file | - | Save data to a CSV file. |
-| `remove_last_column(self, data: pd.DataFrame)` | `data` (pd.DataFrame): Input data | `pd.DataFrame`: Data with last column removed | Remove the last column from the DataFrame. |
-| `handle_is_pirate_features(self, data: pd.DataFrame)` | `data` (pd.DataFrame): Input data with pirate features | `pd.DataFrame`: Processed data | Handle isPirate features by dropping or encoding them. |
-| `normalize_per_process(self, training_data: pd.DataFrame, test_data: pd.DataFrame)` | `training_data` (pd.DataFrame): Training data<br>`test_data` (pd.DataFrame): Test data | Normalized training and test data | Normalize numerical features to have zero mean and unit variance. |
-| `plot_one_time_series(self, data: pd.DataFrame, number: int)` | `data` (pd.DataFrame): Data with time series features<br>`number` (int): Number of samples to plot | - | Plot a single time series from the DataFrame. |
-| `__aggregate_time_series(self, data: pd.DataFrame, primaryKeyColumn: str, timeColumn: str, extraColumns: list[str])` | `data` (pd.DataFrame): Input data<br>`primaryKeyColumn` (str): Column name for primary key<br>`timeColumn` (str): Column name for time<br>`extraColumns` (list[str]): Additional columns to exclude | `np.ndarray`: 3D array of aggregated time series | Aggregate time series data into a 3D NumPy array. |
-| `__plotPcaNumComponentsPerFeature(self, pcadata: list[np.ndarray], feature_names: list[str])` | `pcadata` (list[np.ndarray]): List of PCA-transformed data per feature<br>`feature_names` (list[str]): Names of features | - | Plot the number of PCA components selected per feature. |
-| `apply_pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame)` | `training_data` (pd.DataFrame): Training data<br>`test_data` (pd.DataFrame): Test data | PCA-transformed training and test data | Apply PCA to reduce dimensionality of the data. |
-| `apply_feature_selection(self, training_data: pd.DataFrame, test_data: pd.DataFrame)` | `training_data` (pd.DataFrame): Training data<br>`test_data` (pd.DataFrame): Test data | Feature-selected training and test data | Select specific features from the data. |
-| `preprocess()` | - | - | Main preprocessing function to load, process, and save data. |
+| `fromYaml` | `path: str` | `PreProcessor` | Builds a PreProcessor from a YAML file. |
+| `__init__` | `params: dict` | - | Initialize the PreProcessor with given parameters. |
+| `load_data` | `file_name: str` | `pd.DataFrame` | Load data from a CSV file. |
+| `save_data` | `data`<br>`file_name: str` | - | Save data to a CSV file. |
+| `remove_last_column` | `data: pd.DataFrame` | `pd.DataFrame` | Remove the last column from the DataFrame. |
+| `handle_is_pirate_features` | `data: pd.DataFrame` | `pd.DataFrame` | Handle isPirate features by dropping or encoding them. |
+| `normalize_per_process` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | Normalized data | Normalize numerical features to have zero mean and unit variance. |
+| `plot_one_time_series` | `data: pd.DataFrame`<br>`number: int` | - | Plot a single time series from the DataFrame. |
+| `__aggregate_time_series` | `data: pd.DataFrame`<br>`primaryKeyColumn: str`<br>`timeColumn: str`<br>`extraColumns: list[str]` | `np.ndarray` | Aggregate time series data into a 3D NumPy array. |
+| `__plotPcaNumComponentsPerFeature` | `pcadata: list[np.ndarray]`<br>`feature_names: list[str]` | - | Plot the number of PCA components selected per feature. |
+| `apply_pca` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | PCA-transformed data | Apply PCA to reduce dimensionality of the data. |
+| `apply_feature_selection` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | Feature-selected data | Select specific features from the data. |
+| `preprocess` | - | - | Main preprocessing function to load, process, and save data. |
 
 ---
 
