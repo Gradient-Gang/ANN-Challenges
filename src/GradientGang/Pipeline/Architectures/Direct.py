@@ -16,6 +16,7 @@ class Direct(L.LightningModule):
         },
         requiredParams={
             "EncoderParams": dict,
+            "GlobalFFEncoderParams": dict,
             "FeedForwardParams": dict,
             "OutputDim": int
         }
@@ -29,6 +30,7 @@ class Direct(L.LightningModule):
         self.params = params
 
         encoder_params = params["EncoderParams"]
+        global_ff_encoder_params = params["GlobalFFEncoderParams"]
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
 
@@ -40,14 +42,20 @@ class Direct(L.LightningModule):
 
         self.encoder = Encoder(
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn)
+        self.globalff_encoder = FeedForward(global_ff_encoder_params)
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
         self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
 
     def forward(self, x):
-        encoded = self.encoder(x)
-        predictions = self.feedforward(encoded)
+        timeSeries = x[0]
+        globalFeatures = x[1]
+        encoded_timeSeries = self.encoder(timeSeries)
+        encoded_globalFeatures = self.globalff_encoder(globalFeatures)
+        combined_encoded = torch.cat(
+            (encoded_timeSeries, encoded_globalFeatures), dim=1)
+        predictions = self.feedforward(combined_encoded)
         return predictions
 
     def configure_optimizers(self):

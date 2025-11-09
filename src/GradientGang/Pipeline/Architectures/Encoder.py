@@ -203,13 +203,27 @@ class Encoder(nn.Module):
 
         if has_recurrent:
             # For recurrent layers, handle the tuple output
+            prev_was_recurrent = False
             for layer in self.net:
                 if isinstance(layer, (nn.LSTM, nn.GRU, nn.RNN)):
                     # RNN layers return (output, hidden_state) or (output, (hidden, cell))
-                    # We take the output and continue
+                    # output shape: (batch, seq_len, hidden_size) if batch_first=True
                     x, _ = layer(x)
+                    prev_was_recurrent = True
+                elif isinstance(layer, (nn.ReLU, nn.GELU, nn.LeakyReLU)):
+                    # Skip activation after recurrent layers (they output sequences)
+                    if not prev_was_recurrent:
+                        x = layer(x)
+                    prev_was_recurrent = False
                 else:
                     x = layer(x)
+                    prev_was_recurrent = False
+
+            # For time series classification, take the last timestep
+            # This gives us (batch, hidden_size) suitable for feedforward layers
+            if len(x.shape) == 3:  # (batch, seq_len, features)
+                x = x[:, -1, :]  # Take last timestep: (batch, features)
+
             return x
         else:
             # Standard feedforward processing
