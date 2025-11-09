@@ -22,6 +22,8 @@ class MockLightningModule(L.LightningModule):
         super().__init__()
         self.validation_result = validation_result
         self.layer = nn.Linear(1, 1)  # Add a parameter to make optimizer happy
+        self._train_dataloader = DataLoader(MockDataset(), batch_size=1)
+        self._val_dataloader = DataLoader(MockDataset(), batch_size=1)
 
     def training_step(self, batch, batch_idx):
         loss = torch.tensor(0.0, requires_grad=True)  # Mock training step with proper tensor
@@ -31,6 +33,12 @@ class MockLightningModule(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         self.log("val_f1", self.validation_result)  # Log during validation step
         return {"val_f1": self.validation_result}
+    
+    def train_dataloader(self):
+        return self._train_dataloader
+    
+    def val_dataloader(self):
+        return self._val_dataloader
     
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)  # Mock optimizer with actual optimizer instance
@@ -146,8 +154,7 @@ def test_optimize(optimizer):
         }
     }
     
-    result = optimizer.optimize(mock_architecture_builder, test_params, train_data=mock_train_data, 
-                             val_data=mock_val_data, n_trials=1)  # Specify n_trials to avoid infinite loop
+    result = optimizer.optimize(mock_architecture_builder, test_params, n_trials=1)  # Specify n_trials to avoid infinite loop
     assert isinstance(result, optuna.study.Study)
     assert len(result.trials) == 1
     assert result.best_value == 0.5  # Since our mock always returns 0.5
@@ -157,13 +164,7 @@ def test_objective(optimizer, mock_trial):
     def mock_architecture_builder(params):
         return MockLightningModule(validation_result=0.75)
 
-    # Create DataLoaders from MockDataset
-    mock_train_data = DataLoader(MockDataset(), batch_size=1)
-    mock_val_data = DataLoader(MockDataset(), batch_size=1)
-
     optimizer.build_architecture = mock_architecture_builder
-    optimizer.train_data = mock_train_data
-    optimizer.val_data = mock_val_data
     optimizer.params = {
         "test_param": {
             "type": "float",
@@ -183,17 +184,11 @@ def test_objective(optimizer, mock_trial):
 def test_objective_with_different_validation_results(optimizer, mock_trial):
     test_values = [0.0, 0.5, 1.0]
     
-        # Create DataLoaders from MockDataset
-    mock_train_data = DataLoader(MockDataset(), batch_size=1)
-    mock_val_data = DataLoader(MockDataset(), batch_size=1)
-    
     for val in test_values:
         def mock_architecture_builder(params):
             return MockLightningModule(validation_result=val)
 
         optimizer.build_architecture = mock_architecture_builder
-        optimizer.train_data = mock_train_data
-        optimizer.val_data = mock_val_data
         optimizer.params = {
             "test_param": {
                 "type": "float",
