@@ -12,8 +12,7 @@ class LightningAutoencoder(L.LightningModule):
     # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={
-        },
+        interpretation={},
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -23,8 +22,8 @@ class LightningAutoencoder(L.LightningModule):
             "OutputDim": int,
             "LearningRate": float,
             "Patience": int,
-            "RegularizationWeight": float
-        }
+            "RegularizationWeight": float,
+        },
     )
 
     def __init__(self, params: dict):
@@ -59,24 +58,32 @@ class LightningAutoencoder(L.LightningModule):
 
         # Initialize the Encoder, Decoder, and FeedForward networks
         self.encoder = Encoder(
-            encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn)
-        self.decoder = Decoder(decoder_params, latent_dim,
-                               base_channel_size, num_output_channels, act_fn)
+            encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn
+        )
+        self.decoder = Decoder(
+            decoder_params, latent_dim, base_channel_size, num_output_channels, act_fn
+        )
         self.globalff_encoder = FeedForward(global_ff_encoder_params)
         self.globalff_decoder = FeedForward(global_ff_decoder_params)
 
-        feedforward_params["layer_type"].append({
-            "name": "Linear",
-            "params": {
-                "in_features": feedforward_params["layer_type"][-1]["params"]["out_features"],
-                "out_features": output_dim,
-                "bias": True,
+        feedforward_params["layer_type"].append(
+            {
+                "name": "Linear",
+                "params": {
+                    "in_features": feedforward_params["layer_type"][-1]["params"][
+                        "out_features"
+                    ],
+                    "out_features": output_dim,
+                    "bias": True,
+                },
             }
-        })
+        )
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
-        self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
+        self.val_f1 = F1Score(
+            task="multiclass", num_classes=output_dim, average="macro"
+        )
 
     def forward(self, x):
         """
@@ -90,13 +97,17 @@ class LightningAutoencoder(L.LightningModule):
         # Store original sequence length for decoder reconstruction
         timeSeries = x[0]
         globalFeatures = x[1]
-        original_seq_len = timeSeries.shape[1] if len(
-            timeSeries.shape) == 3 else None
+        original_seq_len = (
+            timeSeries.size(2)
+            if (timeSeries is not None and timeSeries.dim() == 3)
+            else None
+        )
 
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
         combined_encoded = torch.cat(
-            (encoded_timeSeries, encoded_globalFeatures), dim=1)
+            (encoded_timeSeries, encoded_globalFeatures), dim=1
+        )
         predictions = self.feedforward(combined_encoded)
         # Pass sequence length to decoder for LSTM autoencoder reconstruction
         decoded = self.decoder(encoded_timeSeries, seq_len=original_seq_len)
@@ -116,20 +127,17 @@ class LightningAutoencoder(L.LightningModule):
         regularization_weight = self.params.get("RegularizationWeight", 0.0)
 
         optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=learning_rate,
-            weight_decay=regularization_weight
+            self.parameters(), lr=learning_rate, weight_decay=regularization_weight
         )
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5)
-        return {'optimizer': optimizer,
-                'lr_scheduler': {
-                    'scheduler': scheduler,
-                    'monitor': 'val_F1'
-                }
-                }
+            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_F1"},
+        }
 
     def training_step(self, batch, batch_idx):
         """
@@ -145,34 +153,50 @@ class LightningAutoencoder(L.LightningModule):
         predictions, (decoded, decoded_globalFeatures) = self.forward(x)
         timeSeries = x[0]
         globalFeatures = x[1]
-
-        # Compute reconstruction loss as sum of MSE losses for time series and global features
+        # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
-        timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
-        globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
-        decoded_globalFeatures_flat = decoded_globalFeatures.view(
-            decoded_globalFeatures.size(0), -1)
-        reconstruction_loss_timeSeries = loss_fn_reconstruction(
-            decoded_flat, timeSeries_flat)
-        reconstruction_loss_globalFeatures = loss_fn_reconstruction(
-            decoded_globalFeatures_flat, globalFeatures_flat)
-        reconstruction_loss = reconstruction_loss_timeSeries + \
-            reconstruction_loss_globalFeatures
+        device = (
+            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
+        )
 
-        # Compute prediction loss if labels provided
-        if y is not None:
-            # Define class weights - adjust these values based on your class distribution
-            class_weights = torch.tensor(
-                [1.0] * predictions.size(1), device=timeSeries.device)
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(
-                weight=class_weights)
-            prediction_loss = loss_fn_prediction(predictions, y)
+        if timeSeries is not None:
+            timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
+            decoded_flat = decoded.view(decoded.size(0), -1)
+            reconstruction_loss_timeSeries = loss_fn_reconstruction(
+                decoded_flat, timeSeries_flat
+            )
         else:
-            prediction_loss = 0
+            reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
+
+        if globalFeatures is not None:
+            globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
+            decoded_globalFeatures_flat = decoded_globalFeatures.view(
+                decoded_globalFeatures.size(0), -1
+            )
+            reconstruction_loss_globalFeatures = loss_fn_reconstruction(
+                decoded_globalFeatures_flat, globalFeatures_flat
+            )
+        else:
+            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
+
+        reconstruction_loss = (
+            reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
+        )
+
+        # Compute prediction loss only for labeled samples (labels are int indices; -1 means unlabeled)
+        labeled_mask = y >= 0
+        if labeled_mask.any():
+            targets = y[labeled_mask].to(device)
+            preds = predictions[labeled_mask]
+            # Define class weights - adjust these values based on your class distribution
+            class_weights = torch.tensor([1.0] * predictions.size(1), device=device)
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
+            prediction_loss = loss_fn_prediction(preds, targets)
+        else:
+            prediction_loss = torch.tensor(0.0, device=device)
 
         loss = reconstruction_loss + prediction_loss
-        self.log('train_loss', loss)
+        self.log("train_loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -191,24 +215,48 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
-        timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
-        reconstruction_loss_timeSeries = loss_fn_reconstruction(
-            decoded_flat, timeSeries_flat)
-        globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
-        decoded_globalFeatures_flat = decoded_globalFeatures.view(
-            decoded_globalFeatures.size(0), -1)
-        reconstruction_loss_globalFeatures = loss_fn_reconstruction(
-            decoded_globalFeatures_flat, globalFeatures_flat)
-        reconstruction_loss = reconstruction_loss_timeSeries + \
-            reconstruction_loss_globalFeatures
-        self.log("val_reconstruction_loss", reconstruction_loss)
+        device = (
+            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
+        )
 
-        # Update the F1 metric with predictions and targets
-        self.val_f1.update(predictions, y)
-        f1_score = self.val_f1.compute()
-        self.log("val_F1", f1_score)
-        return f1_score
+        if timeSeries is not None:
+            timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
+            decoded_flat = decoded.view(decoded.size(0), -1)
+            reconstruction_loss_timeSeries = loss_fn_reconstruction(
+                decoded_flat, timeSeries_flat
+            )
+        else:
+            reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
+
+        if globalFeatures is not None:
+            globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
+            decoded_globalFeatures_flat = decoded_globalFeatures.view(
+                decoded_globalFeatures.size(0), -1
+            )
+            reconstruction_loss_globalFeatures = loss_fn_reconstruction(
+                decoded_globalFeatures_flat, globalFeatures_flat
+            )
+        else:
+            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
+
+        reconstruction_loss = (
+            reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
+        )
+        self.log("val_reconstruction_loss", reconstruction_loss, prog_bar=True)
+
+        # Only evaluate prediction metrics on labeled samples
+        labeled_mask = y >= 0
+        if labeled_mask.any():
+            preds_labels = predictions[labeled_mask].argmax(dim=1)
+            targets = y[labeled_mask].to(device)
+            # Update the F1 metric with predictions and targets
+            self.val_f1.update(preds_labels, targets)
+            f1_score = self.val_f1.compute()
+            self.log("val_F1", f1_score, prog_bar=True)
+            return f1_score
+        else:
+            # No labeled samples in this batch
+            return None
 
     def on_validation_epoch_end(self):
         """
