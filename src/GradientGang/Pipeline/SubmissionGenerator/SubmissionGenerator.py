@@ -146,6 +146,8 @@ class SubmissionGenerator:
         Returns:
             DataFrame containing the submission data
         """
+
+        #  generate submission file
         return self.create_submission_file(output_path)
 
 
@@ -176,5 +178,9 @@ def generate_submission(
         ...     output_path="my_submission.csv"
         ... )
     """
+
+    # Initialize SubmissionGenerator 
     generator = SubmissionGenerator(model, dataloader, label_mapping)
+
+    # Generate the submission file
     return generator.generate_submission(output_path)

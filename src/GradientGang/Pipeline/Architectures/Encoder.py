@@ -5,6 +5,7 @@ import torch
 
 class Encoder(nn.Module):
 
+    # Define the ParameterInterpreter for the Encoder class
     encoderInterpreter: ParameterInterpreter = ParameterInterpreter(
         name="EncoderInterpreter",
         interpretation={
@@ -195,6 +196,12 @@ class Encoder(nn.Module):
         self.net = nn.Sequential(*modules)
 
     def forward(self, x):
+        """Forward pass for encoder.
+        Args:
+            x (torch.Tensor): Input tensor.
+        Returns:
+            torch.Tensor: Encoded output tensor.
+        """
         # Check if any recurrent layers (RNN, GRU, LSTM) are present
         has_recurrent = any(
             layer_params["name"] in ["LSTM", "GRU", "RNN"]

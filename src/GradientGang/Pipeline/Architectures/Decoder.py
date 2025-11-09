@@ -5,6 +5,7 @@ import torch
 
 class Decoder(nn.Module):
 
+    # Define the ParameterInterpreter for the Decoder class
     decoderInterpreter: ParameterInterpreter = ParameterInterpreter(
         name="DecoderInterpreter",
         interpretation={
@@ -186,7 +187,8 @@ class Decoder(nn.Module):
         num_output_channels: int,
         act_fn: object = nn.GELU,
     ):
-        """Decoder.
+        """
+        Decoder.
 
         Args:
            latent_dim : Dimensionality of latent representation z
@@ -229,7 +231,9 @@ class Decoder(nn.Module):
 
         self.net = nn.Sequential(*modules)
 
-    def forward(self, x, seq_len=None):
+    def forward(
+        self, x, seq_len=None
+    ):
         """
         Forward pass for decoder.
 
