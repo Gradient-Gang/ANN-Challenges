@@ -208,6 +208,7 @@ class Encoder(nn.Module):
                 if isinstance(layer, (nn.LSTM, nn.GRU, nn.RNN)):
                     # RNN layers return (output, hidden_state) or (output, (hidden, cell))
                     # output shape: (batch, seq_len, hidden_size) if batch_first=True
+                    x = x.permute(0, 2, 1)  # Adjust dimensions if needed
                     x, _ = layer(x)
                     prev_was_recurrent = True
                 elif isinstance(layer, (nn.ReLU, nn.GELU, nn.LeakyReLU)):

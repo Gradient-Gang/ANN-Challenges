@@ -71,7 +71,9 @@ class LightningAutoencoder(L.LightningModule):
         # Store original sequence length for decoder reconstruction
         timeSeries = x[0]
         globalFeatures = x[1]
-        original_seq_len = timeSeries.shape[1] if len(
+        # timeSeries shape: (batch, features, seq_len) = (batch, 34, 160)
+        # We need seq_len which is shape[2]
+        original_seq_len = timeSeries.shape[2] if len(
             timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
@@ -113,10 +115,11 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
-        timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
-        globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
-        decoded_globalFeatures_flat = decoded_globalFeatures.view(
+        timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
+        decoded_flat = decoded.reshape(decoded.size(0), -1)
+        globalFeatures_flat = globalFeatures.reshape(
+            globalFeatures.size(0), -1)
+        decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
             decoded_globalFeatures.size(0), -1)
         reconstruction_loss_timeSeries = loss_fn_reconstruction(
             decoded_flat, timeSeries_flat)
@@ -147,12 +150,13 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
-        timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
-        decoded_flat = decoded.view(decoded.size(0), -1)
+        timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
+        decoded_flat = decoded.reshape(decoded.size(0), -1)
         reconstruction_loss_timeSeries = loss_fn_reconstruction(
             decoded_flat, timeSeries_flat)
-        globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
-        decoded_globalFeatures_flat = decoded_globalFeatures.view(
+        globalFeatures_flat = globalFeatures.reshape(
+            globalFeatures.size(0), -1)
+        decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
             decoded_globalFeatures.size(0), -1)
         reconstruction_loss_globalFeatures = loss_fn_reconstruction(
             decoded_globalFeatures_flat, globalFeatures_flat)
