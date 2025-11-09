@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader as TorchDataLoader, Dataset, random_spli
 import pandas as pd
 import os
 import numpy as np
+from torch.utils.data.dataset import ConcatDataset
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 
 
@@ -66,7 +67,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
             labels = labelsOneHot
         else:
-            labels = None
+            labels = torch.empty(size=(globalFeatures.shape[0], len(labelMapping)))
+            labels = torch.fill_(labels, float("nan"))
 
         return TimeSeriesAndGlobalDataset(timeSeries, globalFeatures, labels)
 
@@ -98,6 +100,9 @@ class TimeSeriesAndGlobalDataset(Dataset):
             self.time_series_data[index] if self.time_series_data is not None else None,
             self.global_data[index],
         ), (self.labels[index] if self.labels is not None else None)
+
+    def __add__(self, other: Dataset) -> ConcatDataset:
+        return ConcatDataset([self, other])
 
 
 class DataModule(L.LightningDataModule):
@@ -155,7 +160,7 @@ class DataModule(L.LightningDataModule):
         Setup datasets for training, validation, and testing.
         """
         if stage == "fit" or stage is None:
-            full_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+            train_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
                 labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
                 labelMapping=list(self.label_mapping.keys()),
@@ -163,6 +168,17 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
             )
+
+            test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+                dataPath=os.path.join(self.data_dir, self.test_file_name),
+                labelsPath=None,
+                labelMapping=list(self.label_mapping.keys()),
+                globalColumns=self.globalFeaturesColumns,
+                primaryKeyColumn=self.primaryKeyColumn,
+                timeSeriesColumns=self.timeSeriesColumns,
+            )
+
+            full_dataset = train_dataset + test_dataset
 
             # Split into train and validation
             val_size = int(len(full_dataset) * self.val_split)
