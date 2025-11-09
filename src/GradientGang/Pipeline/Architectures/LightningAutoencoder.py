@@ -117,3 +117,9 @@ class LightningAutoencoder(L.LightningModule):
     def on_validation_epoch_end(self):
         """Reset F1 metric at the end of each validation epoch."""
         self.val_f1.reset()
+
+    def get_embeddings(self, x):
+        """Get latent embeddings from the encoder using no_grad."""
+        with torch.no_grad():
+            embeddings = self.encoder(x)
+        return embeddings

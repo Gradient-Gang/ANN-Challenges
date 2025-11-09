@@ -3,6 +3,7 @@ import lightning as L
 from GradientGang.Pipeline.Pipeline import Pipeline
 from GradientGang.Pipeline.Optimizer.Optimizer import Optimizer
 from GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAutoencoder
+from GradientGang.Pipeline.Architectures.Direct import Direct
 import yaml
 import tempfile
 import os
@@ -176,9 +177,35 @@ def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, m
 
 def test_build_architecture_direct(mock_dataset, mock_test_dataset, mock_optimizer, valid_config):
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
-    params = {"arch_type": "direct"}
-    with pytest.raises(NotImplementedError):
-        pipeline.build_architecture(params)
+    params = {
+        "arch_type": "direct",
+        "OutputDim": 10,
+        "EncoderParams": {
+            "activation_function": "GELU",
+            "layer_type": [{
+                "name": "Conv2d",
+                "params": {
+                    "in_channels": 1,
+                    "out_channels": 64,
+                    "kernel_size": 3
+                }
+            }]
+        },
+        "FeedForwardParams": {
+            "activation_function": "GELU",
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 784,
+                    "out_features": 10
+                }
+            }]
+        },
+        "LearningRate": 0.001,
+        "Patience": 3
+    }
+    arch = pipeline.build_architecture(params)
+    assert isinstance(arch, Direct)
 
 def test_build_architecture_invalid_type(mock_dataset, mock_test_dataset, mock_optimizer, valid_config):
     pipeline = Pipeline(mock_dataset, mock_test_dataset, mock_optimizer, dict_config=valid_config)
