@@ -25,80 +25,122 @@ class Decoder(nn.Module):
         },
         requiredParams={
             "activation_function": ["ReLU", "GELU", "LeakyReLU"],
-            "layer_type": [{"name": "Conv2d", "params": {"in_channels": int,
-                                                         "out_channels": int,
-                                                         "kernel_size": int,
-                                                         "stride": int,
-                                                         "padding": int,
-                                                         "dilation": int,
-                                                         "groups": int,
-                                                         "bias": bool,
-                                                         "padding_mode": str,
-                                                         "device": str,
-                                                         "dtype": str}},
-                           {"name": "Linear", "params": {"in_features": int,
-                                                         "out_features": int,
-                                                         "bias": bool,
-                                                         "device": str,
-                                                         "dtype": str}},
-                           {"name": "Conv1d", "params": {"in_channels": int,
-                                                         "out_channels": int,
-                                                         "kernel_size": int,
-                                                         "stride": int,
-                                                         "padding": int,
-                                                         "dilation": int,
-                                                         "groups": int,
-                                                         "bias": bool,
-                                                         "padding_mode": str,
-                                                         "device": str,
-                                                         "dtype": str}},
-                           {"name": "ConvTranspose2d", "params": {"in_channels": int,
-                                                                  "out_channels": int,
-                                                                  "kernel_size": int,
-                                                                  "stride": int,
-                                                                  "padding": int,
-                                                                  "output_padding": int,
-                                                                  "groups": int,
-                                                                  "bias": bool,
-                                                                  "dilation": int,
-                                                                  "padding_mode": str,
-                                                                  "device": str,
-                                                                  "dtype": str}},
-                           {"name": "ConvTranspose1d", "params": {"in_channels": int,
-                                                                  "out_channels": int,
-                                                                  "kernel_size": int,
-                                                                  "stride": int,
-                                                                  "padding": int,
-                                                                  "output_padding": int,
-                                                                  "groups": int,
-                                                                  "bias": bool,
-                                                                  "dilation": int,
-                                                                  "padding_mode": str,
-                                                                  "device": str,
-                                                                  "dtype": str}},
-                           {"name": "LSTM", "params": {"input_size": int,
-                                                       "hidden_size": int,
-                                                       "num_layers": int,
-                                                       "bias": bool,
-                                                       "batch_first": bool,
-                                                       "dropout": float,
-                                                       "bidirectional": bool}},
-                           {"name": "GRU", "params": {"input_size": int,
-                                                      "hidden_size": int,
-                                                      "num_layers": int,
-                                                      "bias": bool,
-                                                      "batch_first": bool,
-                                                      "dropout": float,
-                                                      "bidirectional": bool}},
-                           {"name": "RNN", "params": {"input_size": int,
-                                                      "hidden_size": int,
-                                                      "num_layers": int,
-                                                      "nonlinearity": str,
-                                                      "bias": bool,
-                                                      "batch_first": bool,
-                                                      "dropout": float,
-                                                      "bidirectional": bool}}]
-        }
+            "layer_type": [
+                {
+                    "name": "Conv2d",
+                    "params": {
+                        "in_channels": int,
+                        "out_channels": int,
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "dilation": int,
+                        "groups": int,
+                        "bias": bool,
+                        "padding_mode": str,
+                        "device": str,
+                        "dtype": str,
+                    },
+                },
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": int,
+                        "out_features": int,
+                        "bias": bool,
+                        "device": str,
+                        "dtype": str,
+                    },
+                },
+                {
+                    "name": "Conv1d",
+                    "params": {
+                        "in_channels": int,
+                        "out_channels": int,
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "dilation": int,
+                        "groups": int,
+                        "bias": bool,
+                        "padding_mode": str,
+                        "device": str,
+                        "dtype": str,
+                    },
+                },
+                {
+                    "name": "ConvTranspose2d",
+                    "params": {
+                        "in_channels": int,
+                        "out_channels": int,
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "output_padding": int,
+                        "groups": int,
+                        "bias": bool,
+                        "dilation": int,
+                        "padding_mode": str,
+                        "device": str,
+                        "dtype": str,
+                    },
+                },
+                {
+                    "name": "ConvTranspose1d",
+                    "params": {
+                        "in_channels": int,
+                        "out_channels": int,
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "output_padding": int,
+                        "groups": int,
+                        "bias": bool,
+                        "dilation": int,
+                        "padding_mode": str,
+                        "device": str,
+                        "dtype": str,
+                    },
+                },
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": int,
+                        "hidden_size": int,
+                        "num_layers": int,
+                        "bias": bool,
+                        "batch_first": bool,
+                        "dropout": float,
+                        "bidirectional": bool,
+                    },
+                },
+                {
+                    "name": "GRU",
+                    "params": {
+                        "input_size": int,
+                        "hidden_size": int,
+                        "num_layers": int,
+                        "bias": bool,
+                        "batch_first": bool,
+                        "dropout": float,
+                        "bidirectional": bool,
+                    },
+                },
+                {
+                    "name": "RNN",
+                    "params": {
+                        "input_size": int,
+                        "hidden_size": int,
+                        "num_layers": int,
+                        "nonlinearity": str,
+                        "bias": bool,
+                        "batch_first": bool,
+                        "dropout": float,
+                        "bidirectional": bool,
+                    },
+                },
+            ],
+        },
     )
 
     # Example params structure:
@@ -136,7 +178,14 @@ class Decoder(nn.Module):
     #     ]
     # }
 
-    def __init__(self, params: dict, latent_dim: int, base_channel_size: int, num_output_channels: int, act_fn: object = nn.GELU):
+    def __init__(
+        self,
+        params: dict,
+        latent_dim: int,
+        base_channel_size: int,
+        num_output_channels: int,
+        act_fn: object = nn.GELU,
+    ):
         """Decoder.
 
         Args:
@@ -151,8 +200,6 @@ class Decoder(nn.Module):
 
         # Store params for forward method
         self.params = params
-
-        c_hid = base_channel_size
 
         # Get the activation function class (same for all layers except possibly the last)
         activation_fn_cls = self.decoderInterpreter.interpret(
@@ -176,7 +223,8 @@ class Decoder(nn.Module):
                 # For the last layer, optionally add output activation
                 if output_activation:
                     output_activation_cls = self.decoderInterpreter.interpret(
-                        output_activation)
+                        output_activation
+                    )
                     modules.append(output_activation_cls())
 
         self.net = nn.Sequential(*modules)
