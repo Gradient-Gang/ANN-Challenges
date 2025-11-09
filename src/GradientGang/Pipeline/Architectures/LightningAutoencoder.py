@@ -12,8 +12,6 @@ class LightningAutoencoder(L.LightningModule):
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
         interpretation={
-            "LearningRate": float,
-            "Patience": int
         },
         requiredParams={
             "EncoderParams": dict,
@@ -21,7 +19,10 @@ class LightningAutoencoder(L.LightningModule):
             "DecoderParams": dict,
             "GlobalFFDecoderParams": dict,
             "FeedForwardParams": dict,
-            "OutputDim": int
+            "OutputDim": int,
+            "LearningRate": float,
+            "Patience": int,
+            "RegularizationWeight": float
         }
     )
 
@@ -87,8 +88,13 @@ class LightningAutoencoder(L.LightningModule):
     def configure_optimizers(self):
         learning_rate = self.params.get("LearningRate", 0.001)
         patience = self.params.get("Patience", 5)
+        regularization_weight = self.params.get("RegularizationWeight", 0.0)
 
-        optimizer = torch.optim.AdamW(self.parameters(), lr=learning_rate)
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=learning_rate,
+            weight_decay=regularization_weight
+        )
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
