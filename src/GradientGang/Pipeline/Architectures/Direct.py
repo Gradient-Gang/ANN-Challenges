@@ -11,8 +11,7 @@ class Direct(L.LightningModule):
     # Define the ParameterInterpreter for the Direct class
     DirectInterpreter = ParameterInterpreter(
         name="DirectInterpreter",
-        interpretation={
-        },
+        interpretation={},
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -20,18 +19,16 @@ class Direct(L.LightningModule):
             "OutputDim": int,
             "LearningRate": float,
             "Patience": int,
-            "RegularizationWeight": float
-        }
+            "RegularizationWeight": float,
+        },
     )
 
-    def __init__(
-        self, params: dict
-    ):
+    def __init__(self, params: dict):
         """
         Direct Architecture for classification tasks.
         Combines an encoder for time series data and a feedforward network for global features.
         The outputs are concatenated and passed through another feedforward network to produce final predictions.
-        
+
         Args:
             params (dict): Configuration parameters for the architecture.
         """
@@ -55,16 +52,21 @@ class Direct(L.LightningModule):
         act_fn = params.get("act_fn", torch.nn.GELU)
 
         self.encoder = Encoder(
-            encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn)
+            encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn
+        )
         self.globalff_encoder = FeedForward(global_ff_encoder_params)
-        feedforward_params["layer_type"].append({
-            "name": "Linear",
-            "params": {
-                "in_features": feedforward_params["layer_type"][-1]["params"]["out_features"],
-                "out_features": output_dim-1,
-                "bias": True,
+        feedforward_params["layer_type"].append(
+            {
+                "name": "Linear",
+                "params": {
+                    "in_features": feedforward_params["layer_type"][-1]["params"][
+                        "out_features"
+                    ],
+                    "out_features": output_dim - 1,
+                    "bias": True,
+                },
             }
-        })
+        )
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
@@ -77,7 +79,7 @@ class Direct(L.LightningModule):
             x (tuple): A tuple containing time series data and global features.
         Returns:
             torch.Tensor: Predictions with an additional zero column.
-            
+
         """
 
         # Unpack input tuple
@@ -88,12 +90,12 @@ class Direct(L.LightningModule):
 
         # Combine encoded features and pass through feedforward network
         combined_encoded = torch.cat(
-            (encoded_timeSeries, encoded_globalFeatures), dim=1)
+            (encoded_timeSeries, encoded_globalFeatures), dim=1
+        )
         predictions = self.feedforward(combined_encoded)
 
         # Append a column of zeros to the predictions
-        zero_tensor = torch.zeros(
-            (predictions.size(0), 1), device=predictions.device)
+        zero_tensor = torch.zeros((predictions.size(0), 1), device=predictions.device)
         predictions = torch.cat((predictions, zero_tensor), dim=-1)
 
         # Return final predictions
@@ -112,17 +114,17 @@ class Direct(L.LightningModule):
         regularization_weight = self.params.get("RegularizationWeight", 0.0)
 
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr=learning_rate, weight_decay=regularization_weight)
+            self.parameters(), lr=learning_rate, weight_decay=regularization_weight
+        )
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5)
-        return {'optimizer': optimizer,
-                'lr_scheduler': {
-                    'scheduler': scheduler,
-                    'monitor': 'val_F1'
-                }
-                }
+            optimizer, mode="max", factor=0.2, patience=patience, min_lr=5e-5
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_F1"},
+        }
 
     def training_step(self, batch, batch_idx):
         """
@@ -141,14 +143,14 @@ class Direct(L.LightningModule):
         if y is not None:
             # Define class weights - adjust these values based on your class distribution
             class_weights = torch.tensor(
-                [1.0] * predictions.size(1), device=predictions.device)
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(
-                weight=class_weights)
+                [1.0] * predictions.size(1), device=predictions.device
+            )
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
             loss = loss_fn_prediction(predictions, y)
         else:
             loss = 0
 
-        self.log('train_loss', loss)
+        self.log("train_loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):

@@ -99,8 +99,7 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # timeSeries shape: (batch, features, seq_len) = (batch, 34, 160)
         # We need seq_len which is shape[2]
-        original_seq_len = timeSeries.shape[2] if len(
-            timeSeries.shape) == 3 else None
+        original_seq_len = timeSeries.shape[2] if len(timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
@@ -131,7 +130,7 @@ class LightningAutoencoder(L.LightningModule):
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
+            optimizer, mode="max", factor=0.2, patience=patience, min_lr=5e-5
         )
         return {
             "optimizer": optimizer,
@@ -155,9 +154,7 @@ class LightningAutoencoder(L.LightningModule):
         # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
         device = (
-            timeSeries.device
-            if (timeSeries is not None)
-            else torch.device(self.device)
+            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
         )
         if timeSeries is not None:
             timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
@@ -169,8 +166,7 @@ class LightningAutoencoder(L.LightningModule):
             reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
         if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.reshape(
-                globalFeatures.size(0), -1)
+            globalFeatures_flat = globalFeatures.reshape(globalFeatures.size(0), -1)
             decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
                 decoded_globalFeatures.size(0), -1
             )
@@ -178,8 +174,7 @@ class LightningAutoencoder(L.LightningModule):
                 decoded_globalFeatures_flat, globalFeatures_flat
             )
         else:
-            reconstruction_loss_globalFeatures = torch.tensor(
-                0.0, device=device)
+            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
 
         reconstruction_loss = (
             reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
@@ -191,10 +186,8 @@ class LightningAutoencoder(L.LightningModule):
             targets = y[labeled_mask].to(device)
             preds = predictions[labeled_mask]
             # Define class weights - adjust these values based on your class distribution
-            class_weights = torch.tensor(
-                [1.0] * predictions.size(1), device=device)
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(
-                weight=class_weights)
+            class_weights = torch.tensor([1.0] * predictions.size(1), device=device)
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
             prediction_loss = loss_fn_prediction(preds, targets)
         else:
             prediction_loss = torch.tensor(0.0, device=device)
@@ -220,8 +213,7 @@ class LightningAutoencoder(L.LightningModule):
         # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
         device = (
-            timeSeries.device if (
-                timeSeries is not None) else torch.device(self.device)
+            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
         )
 
         if timeSeries is not None:
@@ -234,8 +226,7 @@ class LightningAutoencoder(L.LightningModule):
             reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
         if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.reshape(
-                globalFeatures.size(0), -1)
+            globalFeatures_flat = globalFeatures.reshape(globalFeatures.size(0), -1)
             decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
                 decoded_globalFeatures.size(0), -1
             )
@@ -243,8 +234,7 @@ class LightningAutoencoder(L.LightningModule):
                 decoded_globalFeatures_flat, globalFeatures_flat
             )
         else:
-            reconstruction_loss_globalFeatures = torch.tensor(
-                0.0, device=device)
+            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
 
         reconstruction_loss = (
             reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
