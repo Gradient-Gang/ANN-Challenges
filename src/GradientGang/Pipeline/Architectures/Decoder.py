@@ -277,6 +277,11 @@ class Decoder(nn.Module):
                     x = layer(x)
                     prev_was_recurrent = False
 
+            # Permute from (batch, seq_len, features) to (batch, features, seq_len)
+            # to match the original input shape
+            if len(x.shape) == 3:
+                x = x.permute(0, 2, 1)
+
             return x
         else:
             # Standard feedforward processing

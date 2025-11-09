@@ -97,11 +97,10 @@ class LightningAutoencoder(L.LightningModule):
         # Store original sequence length for decoder reconstruction
         timeSeries = x[0]
         globalFeatures = x[1]
-        original_seq_len = (
-            timeSeries.size(2)
-            if (timeSeries is not None and timeSeries.dim() == 3)
-            else None
-        )
+        # timeSeries shape: (batch, features, seq_len) = (batch, 34, 160)
+        # We need seq_len which is shape[2]
+        original_seq_len = timeSeries.shape[2] if len(
+            timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
@@ -155,33 +154,21 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
-        device = (
-            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
-        )
 
-        if timeSeries is not None:
-            timeSeries_flat = timeSeries.view(timeSeries.size(0), -1)
-            decoded_flat = decoded.view(decoded.size(0), -1)
-            reconstruction_loss_timeSeries = loss_fn_reconstruction(
-                decoded_flat, timeSeries_flat
-            )
-        else:
-            reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
-        if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.view(globalFeatures.size(0), -1)
-            decoded_globalFeatures_flat = decoded_globalFeatures.view(
-                decoded_globalFeatures.size(0), -1
-            )
-            reconstruction_loss_globalFeatures = loss_fn_reconstruction(
-                decoded_globalFeatures_flat, globalFeatures_flat
-            )
-        else:
-            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
-
-        reconstruction_loss = (
-            reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
-        )
+<< << << < HEAD
+        timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
+        decoded_flat = decoded.reshape(decoded.size(0), -1)
+        globalFeatures_flat = globalFeatures.reshape(
+            globalFeatures.size(0), -1)
+        decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
+            decoded_globalFeatures.size(0), -1)
+        reconstruction_loss_timeSeries = loss_fn_reconstruction(
+            decoded_flat, timeSeries_flat)
+        reconstruction_loss_globalFeatures = loss_fn_reconstruction(
+            decoded_globalFeatures_flat, globalFeatures_flat)
+        reconstruction_loss = reconstruction_loss_timeSeries + \
+            reconstruction_loss_globalFeatures
 
         # Compute prediction loss only for labeled samples (labels are int indices; -1 means unlabeled)
         labeled_mask = y >= 0
@@ -189,8 +176,10 @@ class LightningAutoencoder(L.LightningModule):
             targets = y[labeled_mask].to(device)
             preds = predictions[labeled_mask]
             # Define class weights - adjust these values based on your class distribution
-            class_weights = torch.tensor([1.0] * predictions.size(1), device=device)
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
+            class_weights = torch.tensor(
+                [1.0] * predictions.size(1), device=device)
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(
+                weight=class_weights)
             prediction_loss = loss_fn_prediction(preds, targets)
         else:
             prediction_loss = torch.tensor(0.0, device=device)
