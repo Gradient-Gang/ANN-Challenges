@@ -28,14 +28,9 @@ class OptunaOptimizer (Optimizer.Optimizer):
     def optimize(self, 
                 architecture_builder: types.FunctionType,
                 params: dict,
-                train_data: L.LightningDataModule,
-                val_data: L.LightningDataModule,
                 n_trials: int = None) -> optuna.study:
         self.build_architecture = architecture_builder
         self.params = params
-
-        self.train_data = train_data
-        self.val_data = val_data
 
         study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0))
         study.optimize(self.objective, n_trials=n_trials)
@@ -51,6 +46,6 @@ class OptunaOptimizer (Optimizer.Optimizer):
         checkpoint_callback = ModelCheckpoint(monitor="val_f1", mode="max")
 
         trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping])
-        trainer.fit(arch, self.train_data, self.val_data)
+        trainer.fit(arch)
 
         return checkpoint_callback.best_model_score
