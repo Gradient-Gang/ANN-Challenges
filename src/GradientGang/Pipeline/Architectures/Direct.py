@@ -5,24 +5,25 @@ from .Encoder import Encoder
 from .FeedForward import FeedForward
 from torchmetrics import F1Score
 
-DirectInterpreter = ParameterInterpreter(
-    name="DirectInterpreter",
-    interpretation={
-        "LearningRate": float,
-        "Patience": int
-    },
-    requiredParams={
-        "EncoderParams": dict,
-        "FeedForwardParams": dict,
-        "OutputDim": int
-    }
-)
-
 
 class Direct(L.LightningModule):
+
+    DirectInterpreter = ParameterInterpreter(
+        name="DirectInterpreter",
+        interpretation={
+            "LearningRate": float,
+            "Patience": int
+        },
+        requiredParams={
+            "EncoderParams": dict,
+            "FeedForwardParams": dict,
+            "OutputDim": int
+        }
+    )
+
     def __init__(self, params: dict):
         super().__init__()
-        DirectInterpreter.checkRequiredParams(params)
+        self.DirectInterpreter.checkRequiredParams(params)
 
         # Store params for later use
         self.params = params

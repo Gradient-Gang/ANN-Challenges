@@ -130,11 +130,6 @@ class SubmissionGenerator:
         # Save to CSV
         submission_df.to_csv(output_path, index=False)
 
-        print(f"Submission file created successfully at: {output_path}")
-        print(f"Total samples: {num_samples}")
-        print(f"\nLabel distribution:")
-        print(submission_df['label'].value_counts())
-
         return submission_df
 
     def generate_submission(

@@ -6,25 +6,26 @@ from .Decoder import Decoder
 from .FeedForward import FeedForward
 from torchmetrics import F1Score
 
-LightningAutoencoderInterpreter = ParameterInterpreter(
-    name="LightningAutoencoderInterpreter",
-    interpretation={
-        "LearningRate": float,
-        "Patience": int
-    },
-    requiredParams={
-        "EncoderParams": dict,
-        "DecoderParams": dict,
-        "FeedForwardParams": dict,
-        "OutputDim": int
-    }
-)
-
 
 class LightningAutoencoder(L.LightningModule):
+
+    LightningAutoencoderInterpreter = ParameterInterpreter(
+        name="LightningAutoencoderInterpreter",
+        interpretation={
+            "LearningRate": float,
+            "Patience": int
+        },
+        requiredParams={
+            "EncoderParams": dict,
+            "DecoderParams": dict,
+            "FeedForwardParams": dict,
+            "OutputDim": int
+        }
+    )
+
     def __init__(self, params: dict):
         super().__init__()
-        LightningAutoencoderInterpreter.checkRequiredParams(params)
+        self.LightningAutoencoderInterpreter.checkRequiredParams(params)
 
         # Store params for later use
         self.params = params
