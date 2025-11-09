@@ -11,7 +11,7 @@ class PreProcessing:
         """
         Initialize the PreProcessing class by loading parameters from a YAML file.
         """
-        with open(path_params, 'r') as f:
+        with open(path_params, "r") as f:
             self.params = yaml.safe_load(f)
 
         # paths
@@ -21,7 +21,9 @@ class PreProcessing:
         # file names
         self.name_train_file = self.params.get("name_train_file", "train.csv")
         self.name_test_file = self.params.get("name_test_file", "test.csv")
-        self.name_train_labels_file = self.params.get("name_train_labels_file", "train_labels.csv")
+        self.name_train_labels_file = self.params.get(
+            "name_train_labels_file", "train_labels.csv"
+        )
 
         # feature handling flags
         self.drop_all_is_pirate = self.params.get("drop_all_is_pirate", False)
@@ -52,10 +54,13 @@ class PreProcessing:
         """
         Save data to a CSV file. Accepts DataFrame or numpy array.
         """
+        os.makedirs(self.path_processed_data, exist_ok=True)
+
         file_path = os.path.join(self.path_processed_data, file_name)
         if not isinstance(data, pd.DataFrame):
             # convert numpy array or other array-like to DataFrame
             data = pd.DataFrame(data)
+
         data.to_csv(file_path, index=False)
 
     def remove_last_column(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -70,22 +75,24 @@ class PreProcessing:
         """
         # If user wants to drop everything related to 'is_pirate' features
         if self.drop_all_is_pirate:
-            return data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors='ignore')
+            return data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
 
         # If user requested one-hot encoding of n_eyes, do that before dropping
         if self.one_hot_encode_is_pirate and "n_eyes" in data.columns:
             data = pd.get_dummies(data, columns=["n_eyes"], drop_first=False)
-            data = data.drop(columns=["n_legs", "n_hands"], errors='ignore')
+            data = data.drop(columns=["n_legs", "n_hands"], errors="ignore")
             return data
 
         # default: map n_eyes to a numeric column called 'number' then drop originals
         eye_map = {"two": 2, "one+eye_patch": 1}
         if "n_eyes" in data.columns:
             data["number"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
-        data = data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors='ignore')
+        data = data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
         return data
 
-    def normalize_per_process(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
+    def normalize_per_process(
+        self, training_data: pd.DataFrame, test_data: pd.DataFrame
+    ):
         """
         Normalize numerical features to have zero mean and unit variance.
         Returns (training_data, test_data).
@@ -151,12 +158,16 @@ class PreProcessing:
         test_arr = pca.transform(test_data)
         return training_arr, test_arr
 
-    def apply_feature_selection(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
+    def apply_feature_selection(
+        self, training_data: pd.DataFrame, test_data: pd.DataFrame
+    ):
         """
         Select specific features from the data.
         """
-        if getattr(self, 'feature_selected', None) is None:
-            raise ValueError("feature_selected is not set while feature selection requested")
+        if getattr(self, "feature_selected", None) is None:
+            raise ValueError(
+                "feature_selected is not set while feature selection requested"
+            )
         training_data = training_data[self.feature_selected]
         test_data = test_data[self.feature_selected]
         return training_data, test_data
@@ -222,7 +233,9 @@ class PreProcessing:
 
         if self.use_feature_selection:
             try:
-                train_data, test_data = self.apply_feature_selection(train_data, test_data)
+                train_data, test_data = self.apply_feature_selection(
+                    train_data, test_data
+                )
             except Exception as e:
                 print(f"Error applying feature selection: {e}")
                 return
