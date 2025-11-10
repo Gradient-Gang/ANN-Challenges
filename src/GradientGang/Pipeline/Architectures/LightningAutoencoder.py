@@ -1,5 +1,6 @@
 import pytorch_lightning as L
 import torch
+import yaml
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Encoder import Encoder
 from .Decoder import Decoder
@@ -12,7 +13,9 @@ class LightningAutoencoder(L.LightningModule):
     # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={},
+        interpretation={
+            "ClassWeightsPath": str
+        },
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -50,10 +53,36 @@ class LightningAutoencoder(L.LightningModule):
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
 
-        self.reconstruction_loss_weight = params.get("ReconstructionLossWeight", 0.5)
+        self.reconstruction_loss_weight = params.get(
+            "ReconstructionLossWeight", 0.5)
         assert (
             0 <= self.reconstruction_loss_weight <= 1.0
         ), "ReconstructionLossWeight must be between 0 and 1."
+
+        # Load class weights from YAML file if provided
+        class_weights_path = params.get("ClassWeightsPath")
+
+        if class_weights_path:
+            try:
+                with open(class_weights_path, 'r') as f:
+                    class_weights_dict = yaml.safe_load(f)
+                # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
+                # Assumes class labels are integers 0 to output_dim-1
+                # Handle both integer and string keys in the YAML file
+                class_weights_list = []
+                for i in range(output_dim):
+                    class_weights_list.append(class_weights_dict[i])
+                class_weights_tensor = torch.tensor(
+                    class_weights_list, dtype=torch.float32)
+                # Register as buffer so it moves with the model to the correct device
+                self.register_buffer('class_weights', class_weights_tensor)
+            except Exception as e:
+                print(
+                    f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
+        else:
+            # No path provided, use equal weights (all ones)
+            class_weights_tensor = torch.ones(output_dim, dtype=torch.float32)
+            self.register_buffer('class_weights', class_weights_tensor)
 
         # Extract additional parameters if provided, with defaults
         num_input_channels = params.get("num_input_channels", 1)
@@ -103,7 +132,8 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # timeSeries shape: (batch, features, seq_len) = (batch, 34, 160)
         # We need seq_len which is shape[2]
-        original_seq_len = timeSeries.shape[2] if len(timeSeries.shape) == 3 else None
+        original_seq_len = timeSeries.shape[2] if len(
+            timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
@@ -158,7 +188,8 @@ class LightningAutoencoder(L.LightningModule):
         # Compute reconstruction loss
         loss_fn_reconstruction = torch.nn.MSELoss()
         device = (
-            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
+            timeSeries.device if (
+                timeSeries is not None) else torch.device(self.device)
         )
         if timeSeries is not None:
             timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
@@ -170,7 +201,8 @@ class LightningAutoencoder(L.LightningModule):
             reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
         if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.reshape(globalFeatures.size(0), -1)
+            globalFeatures_flat = globalFeatures.reshape(
+                globalFeatures.size(0), -1)
             decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
                 decoded_globalFeatures.size(0), -1
             )
@@ -178,7 +210,8 @@ class LightningAutoencoder(L.LightningModule):
                 decoded_globalFeatures_flat, globalFeatures_flat
             )
         else:
-            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
+            reconstruction_loss_globalFeatures = torch.tensor(
+                0.0, device=device)
 
         reconstruction_loss = (
             reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
@@ -189,10 +222,9 @@ class LightningAutoencoder(L.LightningModule):
         if labeled_mask.any():
             targets = y[labeled_mask].to(device)
             preds = predictions[labeled_mask]
-            # Define class weights - adjust these values based on your class distribution
-            # TODO: compute global class weights and loss just once at the beginning of training
-            class_weights = torch.tensor([1.0] * predictions.size(1), device=device)
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
+            # Use the class weights loaded from YAML file (or None for uniform weighting)
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(
+                weight=self.class_weights)
             prediction_loss = loss_fn_prediction(preds, targets)
         else:
             prediction_loss = torch.tensor(0.0, device=device)
@@ -221,7 +253,8 @@ class LightningAutoencoder(L.LightningModule):
         # Compute reconstruction loss for logging
         loss_fn_reconstruction = torch.nn.MSELoss()
         device = (
-            timeSeries.device if (timeSeries is not None) else torch.device(self.device)
+            timeSeries.device if (
+                timeSeries is not None) else torch.device(self.device)
         )
 
         if timeSeries is not None:
@@ -234,7 +267,8 @@ class LightningAutoencoder(L.LightningModule):
             reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
 
         if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.reshape(globalFeatures.size(0), -1)
+            globalFeatures_flat = globalFeatures.reshape(
+                globalFeatures.size(0), -1)
             decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
                 decoded_globalFeatures.size(0), -1
             )
@@ -242,7 +276,8 @@ class LightningAutoencoder(L.LightningModule):
                 decoded_globalFeatures_flat, globalFeatures_flat
             )
         else:
-            reconstruction_loss_globalFeatures = torch.tensor(0.0, device=device)
+            reconstruction_loss_globalFeatures = torch.tensor(
+                0.0, device=device)
 
         reconstruction_loss = (
             reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
