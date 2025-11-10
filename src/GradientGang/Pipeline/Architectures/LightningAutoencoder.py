@@ -87,9 +87,7 @@ class LightningAutoencoder(L.LightningModule):
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
-        self.val_f1 = F1Score(
-            task="multiclass", num_classes=output_dim, average="macro"
-        )
+        self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
 
     def forward(self, x):
         """
