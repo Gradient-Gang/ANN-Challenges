@@ -94,6 +94,8 @@ def test_build_architecture_autoencoder_split(mock_dataset, mock_test_dataset, m
     params = {
         "arch_type": "autoencoder_split",
         "OutputDim": 10,
+        "RegularizationWeight": 0.1,
+        "ReconstructionLossWeight": 0.5,
         "EncoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
@@ -105,6 +107,16 @@ def test_build_architecture_autoencoder_split(mock_dataset, mock_test_dataset, m
                 }
             }]
         },
+        "GlobalFFEncoderParams": {
+            "activation_function": "ReLU",
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 1,
+                    "out_features": 1
+                }
+            }]
+        },
         "DecoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
@@ -113,6 +125,16 @@ def test_build_architecture_autoencoder_split(mock_dataset, mock_test_dataset, m
                     "in_channels": 64,
                     "out_channels": 1,
                     "kernel_size": 3
+                }
+            }]
+        },
+        "GlobalFFDecoderParams": {
+            "activation_function": "ReLU",
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 1,
+                    "out_features": 1
                 }
             }]
         },
@@ -137,6 +159,8 @@ def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, m
     params = {
         "arch_type": "autoencoder_joint",
         "OutputDim": 10,
+        "RegularizationWeight": 0.1,
+        "ReconstructionLossWeight": 0.5,
         "EncoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
@@ -148,6 +172,16 @@ def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, m
                 }
             }]
         },
+        "GlobalFFEncoderParams": {
+            "activation_function": "ReLU",
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 1,
+                    "out_features": 1
+                }
+            }]
+        },
         "DecoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
@@ -156,6 +190,16 @@ def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, m
                     "in_channels": 64,
                     "out_channels": 1,
                     "kernel_size": 3
+                }
+            }]
+        },
+        "GlobalFFDecoderParams": {
+            "activation_function": "ReLU",
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 1,
+                    "out_features": 1
                 }
             }]
         },
@@ -180,6 +224,7 @@ def test_build_architecture_direct(mock_dataset, mock_test_dataset, mock_optimiz
     params = {
         "arch_type": "direct",
         "OutputDim": 10,
+        "RegularizationWeight": 0.1,
         "EncoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
@@ -188,6 +233,16 @@ def test_build_architecture_direct(mock_dataset, mock_test_dataset, mock_optimiz
                     "in_channels": 1,
                     "out_channels": 64,
                     "kernel_size": 3
+                }
+            }]
+        },
+        "GlobalFFEncoderParams": {
+            "activation_function": "ReLU",
+            "layer_type": [{
+                "name": "Linear",
+                "params": {
+                    "in_features": 1,
+                    "out_features": 1
                 }
             }]
         },
