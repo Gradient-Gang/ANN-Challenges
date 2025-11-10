@@ -219,7 +219,7 @@ class DataModule(L.LightningDataModule):
             "label_mapping", {"no_pain": 0, "low_pain": 1, "high_pain": 2}
         )
 
-    def setup(self, stage: str | None = None):
+    def setup(self, stage: str | None = None, includeTestInTrain: bool = True):
         """
         Setup datasets for training, validation, and testing.
         Args:
@@ -239,15 +239,6 @@ class DataModule(L.LightningDataModule):
                 timeSeriesColumns=self.timeSeriesColumns,
             )
 
-            unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
-                dataPath=os.path.join(self.data_dir, self.test_file_name),
-                labelsPath=None,
-                labelMapping=list(self.label_mapping.keys()),
-                globalColumns=self.globalFeaturesColumns,
-                primaryKeyColumn=self.primaryKeyColumn,
-                timeSeriesColumns=self.timeSeriesColumns,
-            )
-
             # Split labeled dataset into train/val (do not mix unlabeled test into this split)
             val_size = int(len(labeled_dataset) * self.val_split)
             train_size = len(labeled_dataset) - val_size
@@ -258,8 +249,22 @@ class DataModule(L.LightningDataModule):
                 generator=torch.Generator().manual_seed(42),  # For reproducibility
             )
 
-            # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
-            self.train_dataset = ConcatDataset([self.train_labeled, unlabeled_dataset])
+            if includeTestInTrain:
+                unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+                    dataPath=os.path.join(self.data_dir, self.test_file_name),
+                    labelsPath=None,
+                    labelMapping=list(self.label_mapping.keys()),
+                    globalColumns=self.globalFeaturesColumns,
+                    primaryKeyColumn=self.primaryKeyColumn,
+                    timeSeriesColumns=self.timeSeriesColumns,
+                )
+
+                # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
+                self.train_dataset = ConcatDataset(
+                    [self.train_labeled, unlabeled_dataset]
+                )
+            else:
+                self.train_dataset = self.train_labeled
 
         if stage == "test" or stage is None:
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
