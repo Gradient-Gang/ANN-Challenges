@@ -186,6 +186,7 @@ class LightningAutoencoder(L.LightningModule):
             targets = y[labeled_mask].to(device)
             preds = predictions[labeled_mask]
             # Define class weights - adjust these values based on your class distribution
+            # TODO: compute global class weights and loss just once at the beginning of training
             class_weights = torch.tensor([1.0] * predictions.size(1), device=device)
             loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
             prediction_loss = loss_fn_prediction(preds, targets)
