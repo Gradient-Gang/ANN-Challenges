@@ -1,5 +1,6 @@
 import pytorch_lightning as L
 import torch
+import yaml
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Encoder import Encoder
 from .FeedForward import FeedForward
@@ -20,6 +21,7 @@ class Direct(L.LightningModule):
             "LearningRate": float,
             "Patience": int,
             "RegularizationWeight": float,
+            "ClassWeightsPath": str,
         },
     )
 
@@ -68,6 +70,25 @@ class Direct(L.LightningModule):
             }
         )
         self.feedforward = FeedForward(feedforward_params)
+        # Load class weights from YAML file if provided
+
+        try:
+            class_weights_path = params.get("ClassWeightsPath")
+            with open(class_weights_path, 'r') as f:
+                class_weights_dict = yaml.safe_load(f)
+            # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
+            # Assumes class labels are integers 0 to output_dim-1
+            # Handle both integer and string keys in the YAML file
+            class_weights_list = []
+            for i in range(output_dim):
+                class_weights_list.append(class_weights_dict[i])
+            class_weights_tensor = torch.tensor(
+                class_weights_list, dtype=torch.float32)
+            # Register as buffer so it moves with the model to the correct device
+            self.register_buffer('class_weights', class_weights_tensor)
+        except Exception as e:
+            print(
+                f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
 
         # Initialize F1Score metric as instance variable
         self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
@@ -95,7 +116,8 @@ class Direct(L.LightningModule):
         predictions = self.feedforward(combined_encoded)
 
         # Append a column of zeros to the predictions
-        zero_tensor = torch.zeros((predictions.size(0), 1), device=predictions.device)
+        zero_tensor = torch.zeros(
+            (predictions.size(0), 1), device=predictions.device)
         predictions = torch.cat((predictions, zero_tensor), dim=-1)
 
         # Return final predictions
@@ -142,10 +164,8 @@ class Direct(L.LightningModule):
 
         if y is not None:
             # Define class weights - adjust these values based on your class distribution
-            class_weights = torch.tensor(
-                [1.0] * predictions.size(1), device=predictions.device
-            )
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(weight=class_weights)
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(
+                weight=self.class_weights)
             loss = loss_fn_prediction(predictions, y)
         else:
             loss = 0

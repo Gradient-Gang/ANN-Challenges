@@ -55,15 +55,18 @@ class PreProcessor:
 
         # feature handling flags
         self.drop_all_is_pirate = self.params.get("drop_all_is_pirate", False)
-        self.one_hot_encode_is_pirate = self.params.get("one_hot_encode", False)
+        self.one_hot_encode_is_pirate = self.params.get(
+            "one_hot_encode", False)
 
         # PCA
         self.use_pca = self.params.get("PCA", False)
         if self.use_pca:
-            self.explained_variance = self.params.get("explained_variance", 0.95)
+            self.explained_variance = self.params.get(
+                "explained_variance", 0.95)
 
         # feature selection
-        self.use_feature_selection = self.params.get("feature_selection", False)
+        self.use_feature_selection = self.params.get(
+            "feature_selection", False)
         if self.use_feature_selection:
             self.feature_selected = self.params.get("feature_selected", None)
 
@@ -152,7 +155,8 @@ class PreProcessor:
         # 0: two eyes, 1: one eye or eye patch, 2: no eyes (default)
         eye_map = {"two": 0, "one+eye_patch": 1}
         data["isPirate"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
-        data = data.drop(columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
+        data = data.drop(
+            columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
 
         # One-hot encode if specified
         if self.one_hot_encode_is_pirate:
@@ -173,7 +177,8 @@ class PreProcessor:
             Tuple[pd.DataFrame, pd.DataFrame]: Normalized training and test data
         """
         # Select numeric columns (includes integers and floats)
-        columns = training_data.select_dtypes(include=[np.number]).columns.tolist()
+        columns = training_data.select_dtypes(
+            include=[np.number]).columns.tolist()
 
         # Exclude specified columns from normalization
         for col in self.columns_excluded_from_normalization:
@@ -225,10 +230,14 @@ class PreProcessor:
             axes[6].plot(ti["time"], ti["joint_28"])
             axes[7].plot(ti["time"], ti["joint_29"])
 
-        axes[0].set(title="pain survey 1", xlabel="time", ylabel="pain_survey_1")
-        axes[1].set(title="pain survey 2", xlabel="time", ylabel="pain_survey_2")
-        axes[2].set(title="pain survey 3", xlabel="time", ylabel="pain_survey_3")
-        axes[3].set(title="pain survey 4", xlabel="time", ylabel="pain_survey_4")
+        axes[0].set(title="pain survey 1", xlabel="time",
+                    ylabel="pain_survey_1")
+        axes[1].set(title="pain survey 2", xlabel="time",
+                    ylabel="pain_survey_2")
+        axes[2].set(title="pain survey 3", xlabel="time",
+                    ylabel="pain_survey_3")
+        axes[3].set(title="pain survey 4", xlabel="time",
+                    ylabel="pain_survey_4")
         axes[4].set(title="joint 00", xlabel="time", ylabel="joint_00")
         axes[5].set(title="joint 01", xlabel="time", ylabel="joint_01")
         axes[6].set(title="joint 28", xlabel="time", ylabel="joint_28")
@@ -261,7 +270,8 @@ class PreProcessor:
         # Pivot and stack data into 3D NumPy array
         npData = np.stack(
             [
-                data.pivot(index="sample_index", columns="time", values=feat).to_numpy()
+                data.pivot(index="sample_index", columns="time",
+                           values=feat).to_numpy()
                 for feat in data.columns.difference([primaryKeyColumn, timeColumn])
             ],
             axis=-1,
@@ -303,7 +313,7 @@ class PreProcessor:
         Args:
             training_data (pd.DataFrame): The training data
             test_data (pd.DataFrame): The test data
-            
+
         Returns:
             tuple: Tuple containing the transformed training and test data as DataFrames
         """
@@ -359,7 +369,8 @@ class PreProcessor:
         )
 
         # Group by sample_index and reset index
-        training_data = training_data.groupby("sample_index").first().reset_index()
+        training_data = training_data.groupby(
+            "sample_index").first().reset_index()
         training_data_pca = pd.DataFrame(trainingPcaData)
 
         # Concatenate PCA features with the original training data
@@ -382,7 +393,8 @@ class PreProcessor:
         # Group by sample_index and reset index
         test_data = test_data.groupby("sample_index").first().reset_index()
         test_data_pca = pd.DataFrame(testPcaData)
-        test_data = pd.concat([test_data.reset_index(drop=True), test_data_pca], axis=1)
+        test_data = pd.concat(
+            [test_data.reset_index(drop=True), test_data_pca], axis=1)
 
         # Return the transformed training and test data
         return training_data, test_data
@@ -446,10 +458,11 @@ class PreProcessor:
             except Exception:
                 # plotting should not stop preprocessing
                 pass
-                
+
         # Normalize data
         try:
-            train_data, test_data = self.normalize_per_process(train_data, test_data)
+            train_data, test_data = self.normalize_per_process(
+                train_data, test_data)
         except Exception as e:
             print(f"Error normalizing data: {e}")
             return
@@ -494,3 +507,33 @@ class PreProcessor:
         except Exception as e:
             print(f"Error saving data: {e}")
         print("Data saved successfully.")
+
+        self.computeAndSaveClassWeights(train_labels, savingPath=os.path.join(
+            self.path_processed_data, "class_weights.yaml"))
+
+    def computeAndSaveClassWeights(
+        self, labels: pd.DataFrame, savingPath: str = "class_weights.yaml"
+    ):
+        """
+        Compute and save class weights to handle class imbalance.
+        Args:
+            labels (pd.DataFrame): DataFrame containing the labels
+        """
+        labels_mapping = {
+            "no_pain": 0,
+            "low_pain": 1,
+            "high_pain": 2
+        }
+        class_counts = labels['label'].value_counts().to_dict()
+        total_samples = len(labels)
+        class_weights = {
+            cls: total_samples / (len(class_counts) * count)
+            for cls, count in class_counts.items()
+        }
+        class_weights = {
+            labels_mapping[cls]: weight for cls, weight in class_weights.items()
+        }
+
+        # save on a file
+        with open(savingPath, "w") as f:
+            yaml.dump(class_weights, f)
