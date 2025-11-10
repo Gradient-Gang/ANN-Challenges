@@ -13,7 +13,9 @@ class LightningAutoencoder(L.LightningModule):
     # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={},
+        interpretation={
+            "ClassWeightsPath": str
+        },
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -25,7 +27,6 @@ class LightningAutoencoder(L.LightningModule):
             "Patience": int,
             "RegularizationWeight": float,
             "ReconstructionLossWeight": float,
-            "ClassWeightsPath": str,
         },
     )
 
@@ -59,23 +60,29 @@ class LightningAutoencoder(L.LightningModule):
         ), "ReconstructionLossWeight must be between 0 and 1."
 
         # Load class weights from YAML file if provided
-        try:
-            class_weights_path = params.get("ClassWeightsPath")
-            with open(class_weights_path, 'r') as f:
-                class_weights_dict = yaml.safe_load(f)
-            # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
-            # Assumes class labels are integers 0 to output_dim-1
-            # Handle both integer and string keys in the YAML file
-            class_weights_list = []
-            for i in range(output_dim):
-                class_weights_list.append(class_weights_dict[i])
-            class_weights_tensor = torch.tensor(
-                class_weights_list, dtype=torch.float32)
-            # Register as buffer so it moves with the model to the correct device
+        class_weights_path = params.get("ClassWeightsPath")
+
+        if class_weights_path:
+            try:
+                with open(class_weights_path, 'r') as f:
+                    class_weights_dict = yaml.safe_load(f)
+                # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
+                # Assumes class labels are integers 0 to output_dim-1
+                # Handle both integer and string keys in the YAML file
+                class_weights_list = []
+                for i in range(output_dim):
+                    class_weights_list.append(class_weights_dict[i])
+                class_weights_tensor = torch.tensor(
+                    class_weights_list, dtype=torch.float32)
+                # Register as buffer so it moves with the model to the correct device
+                self.register_buffer('class_weights', class_weights_tensor)
+            except Exception as e:
+                print(
+                    f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
+        else:
+            # No path provided, use equal weights (all ones)
+            class_weights_tensor = torch.ones(output_dim, dtype=torch.float32)
             self.register_buffer('class_weights', class_weights_tensor)
-        except Exception as e:
-            print(
-                f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
 
         # Extract additional parameters if provided, with defaults
         num_input_channels = params.get("num_input_channels", 1)

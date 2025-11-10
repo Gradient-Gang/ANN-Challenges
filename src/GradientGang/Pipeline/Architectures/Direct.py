@@ -12,7 +12,9 @@ class Direct(L.LightningModule):
     # Define the ParameterInterpreter for the Direct class
     DirectInterpreter = ParameterInterpreter(
         name="DirectInterpreter",
-        interpretation={},
+        interpretation={
+            "ClassWeightsPath": str
+        },
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -21,7 +23,6 @@ class Direct(L.LightningModule):
             "LearningRate": float,
             "Patience": int,
             "RegularizationWeight": float,
-            "ClassWeightsPath": str,
         },
     )
 
@@ -72,23 +73,29 @@ class Direct(L.LightningModule):
         self.feedforward = FeedForward(feedforward_params)
         # Load class weights from YAML file if provided
 
-        try:
-            class_weights_path = params.get("ClassWeightsPath")
-            with open(class_weights_path, 'r') as f:
-                class_weights_dict = yaml.safe_load(f)
-            # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
-            # Assumes class labels are integers 0 to output_dim-1
-            # Handle both integer and string keys in the YAML file
-            class_weights_list = []
-            for i in range(output_dim):
-                class_weights_list.append(class_weights_dict[i])
-            class_weights_tensor = torch.tensor(
-                class_weights_list, dtype=torch.float32)
-            # Register as buffer so it moves with the model to the correct device
+        class_weights_path = params.get("ClassWeightsPath")
+
+        if class_weights_path:
+            try:
+                with open(class_weights_path, 'r') as f:
+                    class_weights_dict = yaml.safe_load(f)
+                # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
+                # Assumes class labels are integers 0 to output_dim-1
+                # Handle both integer and string keys in the YAML file
+                class_weights_list = []
+                for i in range(output_dim):
+                    class_weights_list.append(class_weights_dict[i])
+                class_weights_tensor = torch.tensor(
+                    class_weights_list, dtype=torch.float32)
+                # Register as buffer so it moves with the model to the correct device
+                self.register_buffer('class_weights', class_weights_tensor)
+            except Exception as e:
+                print(
+                    f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
+        else:
+            # No path provided, use equal weights (all ones)
+            class_weights_tensor = torch.ones(output_dim, dtype=torch.float32)
             self.register_buffer('class_weights', class_weights_tensor)
-        except Exception as e:
-            print(
-                f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
 
         # Initialize F1Score metric as instance variable
         self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
