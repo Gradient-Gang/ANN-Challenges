@@ -5,6 +5,12 @@ import lightning as L
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from GradientGang.Pipeline.Optimizer.OptunaOptimizer import OptunaOptimizer
+import warnings
+
+# Filter PyTorch Lightning warnings in tests
+warnings.filterwarnings("ignore", message=".*max_epochs.*")
+warnings.filterwarnings("ignore", message=".*num_workers.*")
+warnings.filterwarnings("ignore", message=".*log_every_n_steps.*")
 
 # Mock classes
 class MockDataset(Dataset):

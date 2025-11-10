@@ -95,6 +95,7 @@ def test_build_architecture_autoencoder_split(mock_dataset, mock_test_dataset, m
         "arch_type": "autoencoder_split",
         "OutputDim": 10,
         "RegularizationWeight": 0.1,
+        "ReconstructionLossWeight": 0.5,
         "EncoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
@@ -159,6 +160,7 @@ def test_build_architecture_autoencoder_joint(mock_dataset, mock_test_dataset, m
         "arch_type": "autoencoder_joint",
         "OutputDim": 10,
         "RegularizationWeight": 0.1,
+        "ReconstructionLossWeight": 0.5,
         "EncoderParams": {
             "activation_function": "GELU",
             "layer_type": [{
