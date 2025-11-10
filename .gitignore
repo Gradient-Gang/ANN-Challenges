@@ -12,5 +12,5 @@ dataset/
 # Ignore lightning logs
 lightning_logs/
 
-# Ignore TensorBoard logs
-logs_tb/
+# Ignore submission files
+Submissions/
