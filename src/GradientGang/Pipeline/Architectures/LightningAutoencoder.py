@@ -23,6 +23,7 @@ class LightningAutoencoder(L.LightningModule):
             "LearningRate": float,
             "Patience": int,
             "RegularizationWeight": float,
+            "ReconstructionLossWeight": float,
         },
     )
 
@@ -48,6 +49,11 @@ class LightningAutoencoder(L.LightningModule):
         global_ff_decoder_params = params["GlobalFFDecoderParams"]
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
+
+        self.reconstruction_loss_weight = params.get("ReconstructionLossWeight", 0.5)
+        assert (
+            0 <= self.reconstruction_loss_weight <= 1.0
+        ), "ReconstructionLossWeight must be between 0 and 1."
 
         # Extract additional parameters if provided, with defaults
         num_input_channels = params.get("num_input_channels", 1)
@@ -193,7 +199,8 @@ class LightningAutoencoder(L.LightningModule):
         else:
             prediction_loss = torch.tensor(0.0, device=device)
 
-        loss = reconstruction_loss + prediction_loss
+        loss = (1 - self.reconstruction_loss_weight) * reconstruction_loss + \
+                     self.reconstruction_loss_weight * prediction_loss
         self.log("train_loss", loss)
         return loss
 
