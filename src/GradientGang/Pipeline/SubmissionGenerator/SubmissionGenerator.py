@@ -63,7 +63,11 @@ class SubmissionGenerator:
                 # Move features to the same device as model
                 try:
                     device = next(self.model.parameters()).device
-                    features = features.to(device)
+                    # Handle tuple/list of tensors (e.g., Direct architecture)
+                    if isinstance(features, (tuple, list)):
+                        features = tuple(f.to(device) if isinstance(f, torch.Tensor) else f for f in features)
+                    else:
+                        features = features.to(device)
                 except StopIteration:
                     # Model has no parameters, use CPU
                     pass
@@ -151,36 +155,3 @@ class SubmissionGenerator:
         return self.create_submission_file(output_path)
 
 
-# Convenience function for quick usage
-def generate_submission(
-    model: L.LightningModule,
-    dataloader: torch.utils.data.DataLoader,
-    output_path: str = "submission.csv",
-    label_mapping: Dict[int, str] = None
-) -> pd.DataFrame:
-    """
-    Convenience function to generate submission file in one call.
-
-    Args:
-        model: A trained PyTorch Lightning model
-        dataloader: DataLoader containing the test data
-        output_path: Path where the submission CSV will be saved
-        label_mapping: Dictionary mapping integer labels to string labels
-
-    Returns:
-        DataFrame containing the submission data
-
-    Example:
-        >>> from GradientGang.Pipeline.SubmissionGenerator import generate_submission
-        >>> submission_df = generate_submission(
-        ...     model=trained_model,
-        ...     dataloader=test_dataloader,
-        ...     output_path="my_submission.csv"
-        ... )
-    """
-
-    # Initialize SubmissionGenerator 
-    generator = SubmissionGenerator(model, dataloader, label_mapping)
-
-    # Generate the submission file
-    return generator.generate_submission(output_path)
