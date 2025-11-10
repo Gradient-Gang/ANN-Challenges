@@ -1,5 +1,6 @@
 import optuna
 from ..Utils.ParameterInterpreter import ParameterInterpreter
+from ..Pipeline import Pipeline
 
 class OptunaOptimizer:
     def __init__(self, dict_config):
@@ -44,10 +45,14 @@ class OptunaOptimizer:
 
         return vals
 
+    def objective(self, trial: optuna.trial.BaseTrial):
+        dict_arch = self.getParams(self.dict_arch, trial)
+        dict_data = self.getParams(self.dict_data_d, trial)
+
+        return self.pipeline.fit_and_validate(dict_arch, dict_data)
+
     def optimize(
-        self, 
-        architecture_builder: types.FunctionType,
-        params: dict,
+        self,
         n_trials: int = None
     ) -> optuna.study:
         """
@@ -60,43 +65,9 @@ class OptunaOptimizer:
             optuna.study: The Optuna study object containing the optimization results.
         """
 
-        # Store the architecture builder and parameters for use in the objective function
-        self.build_architecture = architecture_builder
-        self.params = params
-
         # Create and run the Optuna study
         study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0))
         study.optimize(self.objective, n_trials=n_trials)
 
         # Return the completed study
         return study
-
-    def objective(
-        self, trial: optuna.trial.BaseTrial
-    ):
-        """
-        Objective function for the Optuna study.
-
-        Args:
-            trial (optuna.trial.BaseTrial): The current Optuna trial.
-
-        Returns:
-            float: The objective value to be minimized or maximized.
-        """
-
-        # Get the parameters for the current trial
-        params = self.getParams(self.params, trial)
-
-        # Build the architecture with the current parameters
-        arch: L.LightningModule = self.build_architecture(params)
-
-        # Set up early stopping and model checkpointing
-        early_stopping = EarlyStopping(monitor="val_f1", patience=10, mode="max")
-        checkpoint_callback = ModelCheckpoint(monitor="val_f1", mode="max")
-
-        # Train the architecture
-        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping])
-        trainer.fit(arch)
-
-        # Return the best model score from the checkpoint
-        return checkpoint_callback.best_model_score
