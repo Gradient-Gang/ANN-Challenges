@@ -14,3 +14,6 @@ lightning_logs/
 
 # Ignore submission files
 Submissions/
+
+# ignore the coverage reports
+.coverage

@@ -91,7 +91,12 @@ class OptunaOptimizer (Optimizer.Optimizer):
         checkpoint_callback = ModelCheckpoint(monitor="val_f1", mode="max")
 
         # Train the architecture
-        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping])
+        trainer: L.Trainer = L.Trainer(
+            callbacks=[checkpoint_callback, early_stopping],
+            max_epochs=100,
+            log_every_n_steps=1,
+            enable_progress_bar=False
+        )
         trainer.fit(arch)
 
         # Return the best model score from the checkpoint
