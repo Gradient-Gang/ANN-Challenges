@@ -28,7 +28,9 @@ class OptunaOptimizer:
         interpretation = {
             "categ": trial.suggest_categorical,
             "float": trial.suggest_float,
-            "int": trial.suggest_int}
+            "int": trial.suggest_int,
+            "value": lambda x: x
+        }
         
         # Required parameters for each parameter type
         required = {"type": str, "params": dict}
