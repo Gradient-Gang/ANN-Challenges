@@ -1,3 +1,3 @@
-from .DataLoader import DataModule, DataLoaderInterpreter
+from .DataLoader import DataModule, TimeSeriesAndGlobalDataset
 
-__all__ = ["DataModule", "DataLoaderInterpreter"]
+__all__ = ["DataModule", "TimeSeriesAndGlobalDataset"]
