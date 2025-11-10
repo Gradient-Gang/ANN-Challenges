@@ -1,81 +1,82 @@
 # Pipeline Module
 
 ## Description
-The Pipeline module orchestrates the complete machine learning workflow by integrating datasets, architectures, and optimization strategies. It serves as the main entry point for building and training neural network models, supporting multiple architecture types including autoencoders and direct classification networks.
+The Pipeline module provides a unified framework for end-to-end deep learning workflows, orchestrating architecture building, hyperparameter optimization, training, and submission generation. It integrates modular components (DataLoader, Architectures, Optimizer, SubmissionGenerator, Utils) into a cohesive pipeline that enables reproducible experiments through configuration-based architecture construction. The module supports automated hyperparameter tuning with Optuna, flexible architecture selection, and seamless integration with PyTorch Lightning for efficient training workflows.
 
-## Main Class: `Pipeline`
+---
 
-### Methods
+## Main Classes
 
-#### `__init__(self, dataset, test, optimizer, dict_config=None, path_config=None)`
-Initialize the pipeline with datasets, optimizer, and configuration.
+### `Pipeline`
+Central orchestration class that manages the complete machine learning workflow from data loading to model optimization.
 
-**Parameters:**
+**Configuration Parameters:**
 - `dataset` (L.LightningDataModule): Training/validation data module
 - `test` (L.LightningDataModule): Test data module
-- `optimizer` (Optimizer): Optimizer instance for hyperparameter tuning
-- `dict_config` (dict, optional): Configuration dictionary (mutually exclusive with path_config)
-- `path_config` (str, optional): Path to YAML configuration file (mutually exclusive with dict_config)
+- `optimizer` (Optimizer): Hyperparameter optimizer instance
+- `dict_config` (dict, optional): Configuration dictionary for architecture and training
+- `path_config` (str, optional): Path to YAML configuration file
 
-**Raises:**
-- `ValueError`: If both or neither of dict_config/path_config are provided
-- `ValueError`: If dataset/test are not LightningDataModule instances
+**Methods:**
 
----
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `__init__` | `dataset: L.LightningDataModule`<br>`test: L.LightningDataModule`<br>`optimizer: Optimizer`<br>`dict_config: dict \| None`<br>`path_config: str \| None` | - | Initialize Pipeline with data modules and configuration. |
+| `build_architecture` | `params: dict` | `L.LightningModule` | Build architecture based on configuration parameters. |
+| `optimize` | - | `L.LightningModule` | Run hyperparameter optimization and return best model. |
 
-#### `build_architecture(self, params: dict) -> L.LightningModule`
-Build a neural network architecture based on provided parameters.
-
-**Parameters:**
-- `params` (dict): Architecture configuration including:
-  - `arch_type` (str): Type of architecture ("autoencoder_joint", "autoencoder_split", or "direct")
-  - Additional architecture-specific parameters
-
-**Returns:**
-- `L.LightningModule`: Instantiated PyTorch Lightning model
-
-**Raises:**
-- `NotImplementedError`: If "direct" architecture type is selected (not yet implemented)
+**Supported Architecture Types:**
+- `autoencoder_joint`: Joint autoencoder with shared latent space
+- `autoencoder_split`: Split autoencoder with separate encoders
+- `direct`: Direct classification without reconstruction
 
 ---
 
-#### `optimize(self)`
-Run optimization process to find best hyperparameters.
+## Pipeline Architecture
 
-**Returns:**
-- Optimization study results (format depends on optimizer implementation)
+![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
 
-## Configuration Format
-
-The configuration should be a dictionary or YAML file with the following structure:
-
-```yaml
-arch_type: "autoencoder_joint"  # or "autoencoder_split", "direct"
-# Additional architecture-specific parameters...
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Pipeline                            │
+│                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
+│  │  DataLoader  │───▶│ Architecture │───▶│  Optimizer  │   │
+│  │              │    │   Builder    │    │              │   │
+│  │ - Train/Val  │    │ - Encoder    │    │ - Optuna     │   │
+│  │ - Test Data  │    │ - Decoder    │    │ - TPE        │   │
+│  │ - Batching   │    │ - FF Network │    │ - Callbacks  │   │
+│  └──────────────┘    └──────────────┘    └──────────────┘   │
+│         │                    │                    │         │
+│         │                    │                    ▼         │
+│         │                    │            ┌──────────────┐  │
+│         │                    │            │   Training   │  │
+│         │                    │            │  (Lightning) │  │
+│         │                    │            └──────────────┘  │
+│         │                    │                    │         │
+│         │                    │                    ▼         │
+│         ▼                    ▼            ┌──────────────┐  │
+│      ───────────────────────────────────▶│ Submission   │  │
+│                                           │  Generator   │  │
+│                                           └──────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Example Usage
+---
 
-```python
-from GradientGang.Pipeline import Pipeline
-from GradientGang.Pipeline.DataLoader import DataModule
-from GradientGang.Pipeline.Optimizer import OptunaOptimizer
+## Module Components
 
-# Create data modules
-train_data = DataModule(train_params)
-test_data = DataModule(test_params)
+### 1. **DataLoader**
+Handles multimodal data loading (time series + global features).
 
-# Create optimizer
-optimizer = OptunaOptimizer()
+### 2. **Architectures**
+Modular building blocks and complete models for classification.
 
-# Initialize pipeline
-pipeline = Pipeline(
-    dataset=train_data,
-    test=test_data,
-    optimizer=optimizer,
-    path_config="config.yaml"
-)
+### 3. **Optimizer**
+Automated hyperparameter optimization using Optuna.
 
-# Run optimization
-results = pipeline.optimize()
-```
+### 4. **SubmissionGenerator**
+Automated CSV submission file creation for competitions.
+
+### 5. **Utils**
+Parameter validation and interpretation utilities.

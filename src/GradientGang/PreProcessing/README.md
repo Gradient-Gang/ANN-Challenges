@@ -1,5 +1,7 @@
 # PreProcessing Module
 
+![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The PreProcessing module provides a comprehensive data preprocessing pipeline for the pirate pain dataset. It handles data loading, feature engineering, normalization, dimensionality reduction, and visualization. The module is configured via YAML files for reproducible preprocessing workflows.
 
@@ -38,90 +40,6 @@ The PreProcessing module provides a comprehensive data preprocessing pipeline fo
 | `apply_pca` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | PCA-transformed data | Apply PCA to reduce dimensionality of the data. |
 | `apply_feature_selection` | `training_data: pd.DataFrame`<br>`test_data: pd.DataFrame` | Feature-selected data | Select specific features from the data. |
 | `preprocess` | - | - | Main preprocessing function to load, process, and save data. |
-
----
-
-## Example Usage
-
-### Basic Preprocessing
-
-```python
-from GradientGang.PreProcessing import PreProcessing
-
-# Create preprocessing instance
-preprocessor = PreProcessing("Notebook/Params/preprocessing_params.yaml")
-
-# Run preprocessing pipeline
-preprocessor.preprocess()
-# Output:
-# Data loaded successfully.
-# Last column removed successfully.
-# Inspirate features handled successfully.
-# Data normalized successfully.
-# PCA not applied.
-# Feature selection not applied.
-# Data saved successfully.
-```
-
-### Configuration File (YAML)
-
-```yaml
-# Paths
-path_raw_data: "dataset/Pirate"
-path_processed_data: "dataset/PirateProcessed"
-
-# File names
-name_train_file: "pirate_pain_train.csv"
-name_test_file: "pirate_pain_test.csv"
-name_train_labels_file: "pirate_pain_train_labels.csv"
-
-# Feature handling
-drop_all_is_pirate: false
-one_hot_encode: false
-
-# PCA
-pca: true
-explained_variance: 0.95
-
-# Feature selection
-feature_selection: false
-feature_selected: null
-
-# Verbosity
-verbose: true
-```
-
-### With PCA
-
-```yaml
-pca: true
-explained_variance: 0.90  # Keep 90% of variance
-```
-
-### With Feature Selection
-
-```yaml
-feature_selection: true
-feature_selected:
-  - pain_survey_1
-  - pain_survey_2
-  - joint_00
-  - joint_01
-  - joint_28
-```
-
-### Drop Pirate Features
-
-```yaml
-drop_all_is_pirate: true
-```
-
-### One-Hot Encode Eyes
-
-```yaml
-drop_all_is_pirate: false
-one_hot_encode: true
-```
 
 ---
 
@@ -169,12 +87,4 @@ After preprocessing, data is saved in the same CSV format but with:
 - Optionally reduced dimensions (PCA)
 - Optionally filtered features (feature selection)
 
----
 
-## Notes
-
-- All transformations use training statistics to avoid data leakage
-- PCA and normalization fit only on training data, transform both train and test
-- Visualization requires matplotlib (optional, errors are caught)
-- The module gracefully handles missing columns with error messages
-- Fixed random seed (42) should be used in preprocessing for reproducibility
