@@ -1,5 +1,7 @@
 # SubmissionGenerator Module
 
+![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The SubmissionGenerator module provides automated submission file generation for classification challenges. It takes trained PyTorch Lightning models and test dataloaders, performs batch predictions, and creates properly formatted CSV files with sample indices and predicted labels. The module handles various model output formats, supports custom label mappings, and includes convenience functions for quick one-line submission generation. It's designed to seamlessly integrate with the Pipeline for end-to-end workflows from training to submission.
 

@@ -1,5 +1,7 @@
 # DataLoader Module
 
+![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The DataLoader module provides a PyTorch Lightning DataModule for loading multimodal datasets combining time series and global features from CSV files. It handles label mapping, automatic train/validation/test splits, and efficient data loading with support for parallel workers and GPU memory pinning. The module is designed to work seamlessly with the Pipeline for end-to-end training workflows and supports both time series and tabular data formats.
 

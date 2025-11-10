@@ -1,5 +1,7 @@
 # Optimizer Module
 
+![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The Optimizer module provides hyperparameter optimization capabilities for neural network architectures using Optuna. It offers a flexible framework for automated hyperparameter tuning with support for categorical, float, and integer parameter spaces. The module integrates seamlessly with PyTorch Lightning and includes early stopping, model checkpointing, and TPE (Tree-structured Parzen Estimator) sampling for efficient optimization. It's designed to work with the Pipeline for end-to-end architecture optimization workflows.
 

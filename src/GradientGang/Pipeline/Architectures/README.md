@@ -1,5 +1,7 @@
 # Architectures Module
 
+![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The Architectures module provides a flexible framework for building deep learning models using PyTorch Lightning. It includes modular building blocks (Encoder, Decoder, FeedForward) and complete architectures (LightningAutoencoder, Direct) for multimodal classification tasks combining time series and global features. All architectures support parameter validation through the ParameterInterpreter utility and are configured via dictionaries for reproducible experiments.
 

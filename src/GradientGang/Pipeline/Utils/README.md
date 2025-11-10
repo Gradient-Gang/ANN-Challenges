@@ -1,5 +1,7 @@
 # Utils Module
 
+![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The Utils module provides essential utility classes for parameter validation, interpretation, and configuration management across the Pipeline. It includes the `ParameterInterpreter` class for robust parameter validation with type checking, recursive nested validation, and string-to-object mapping capabilities. This module is fundamental to ensuring configuration correctness throughout the codebase, enabling flexible yet safe parameter handling for architectures, optimizers, and data loaders.
 

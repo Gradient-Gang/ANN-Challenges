@@ -34,6 +34,8 @@ Central orchestration class that manages the complete machine learning workflow 
 
 ## Pipeline Architecture
 
+![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         Pipeline                            │
@@ -54,16 +56,9 @@ Central orchestration class that manages the complete machine learning workflow 
 │         │                    │                    │         │
 │         │                    │                    ▼         │
 │         ▼                    ▼            ┌──────────────┐  │
-│  ┌──────────────────────────────────────▶│ Submission   │  │
-│  │                                        │  Generator   │  │
-│  │                                        └──────────────┘  │
-│  │                                                          │
-│  │         ┌──────────────────────────────────────┐         │
-│  └────────▶│  ParameterInterpreter (Utils)        │        │
-│            │  - Validation                        │         │
-│            │  - Type Checking                     │         │
-│            │  - String-to-Object Mapping          │         │
-│            └──────────────────────────────────────┘         │
+│      ───────────────────────────────────▶│ Submission   │  │
+│                                           │  Generator   │  │
+│                                           └──────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 

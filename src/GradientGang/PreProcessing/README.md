@@ -1,5 +1,7 @@
 # PreProcessing Module
 
+![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
+
 ## Description
 The PreProcessing module provides a comprehensive data preprocessing pipeline for the pirate pain dataset. It handles data loading, feature engineering, normalization, dimensionality reduction, and visualization. The module is configured via YAML files for reproducible preprocessing workflows.
 
