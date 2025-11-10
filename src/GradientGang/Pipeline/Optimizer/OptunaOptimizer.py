@@ -45,8 +45,11 @@ class OptunaOptimizer:
 
         return vals
 
+    def build_architecture_data(self, params, trial):
+        pass
+
     def objective(self, trial: optuna.trial.BaseTrial):
-        dict_arch = self.getParams(self.dict_arch, trial)
+        dict_arch = self.build_architecture_data(self.dict_arch, trial)
         dict_data = self.getParams(self.dict_data_d, trial)
 
         return self.pipeline.fit_and_validate(dict_arch, dict_data)
