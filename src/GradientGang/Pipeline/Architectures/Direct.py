@@ -168,7 +168,7 @@ class Direct(L.LightningModule):
         # Update the F1 metric with predictions and targets
         self.val_f1.update(predictions, y)
         f1_score = self.val_f1.compute()
-        self.log("val_F1", f1_score)
+        self.log("val_F1", f1_score, prog_bar=True)
         return f1_score
 
     def on_validation_epoch_end(self):
