@@ -199,8 +199,10 @@ class LightningAutoencoder(L.LightningModule):
         else:
             prediction_loss = torch.tensor(0.0, device=device)
 
-        loss = (1 - self.reconstruction_loss_weight) * reconstruction_loss + \
-                     self.reconstruction_loss_weight * prediction_loss
+        loss = (
+            self.reconstruction_loss_weight * reconstruction_loss
+            + (1 - self.reconstruction_loss_weight) * prediction_loss
+        )
         self.log("train_loss", loss)
         return loss
 
