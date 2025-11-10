@@ -1,11 +1,13 @@
 import optuna
-import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-import types
-from . import Optimizer
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 
-class OptunaOptimizer (Optimizer.Optimizer):
+class OptunaOptimizer:
+    def __init__(self, dict_config):
+        self.dict_data_s = dict_config["data_static"]
+        self.dict_data_d = dict_config["data_dynamic"]
+        self.dict_arch = dict_config["arch"]
+
+        self.pipeline = Pipeline(self.dict_data_s)
 
     def getParams(
         self, params: dict, trial: optuna.trial.BaseTrial
