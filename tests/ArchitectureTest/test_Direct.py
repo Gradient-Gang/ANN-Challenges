@@ -60,7 +60,7 @@ class TestDirect:
                     {
                         "name": "Linear",
                         "params": {
-                            "in_features": 128,
+                            "in_features": 129,  # 128 from encoder + 1 from global features
                             "out_features": 64,
                         }
                     },
@@ -478,4 +478,50 @@ class TestDirect:
         """Test that val_f1 metric is stored as instance variable."""
         model = Direct(basic_params)
         assert hasattr(model, 'val_f1')
+
+    def test_direct_forward_adds_zero_column(self, basic_params):
+        """Test that forward pass adds zero column."""
+        model = Direct(basic_params)
+        model.eval()
+        
+        batch_size = 4
+        time_series = torch.randn(batch_size, 1, 28, 28)
+        global_features = torch.randn(batch_size, 1)
+        
+        predictions = model((time_series, global_features))
+        
+        # Should add a zero column
+        assert predictions.shape == (batch_size, 10)
+        # Last column should be zeros
+        assert torch.allclose(predictions[:, -1], torch.zeros(batch_size))
+
+    def test_direct_training_step_unlabeled(self, basic_params):
+        """Test training step with unlabeled data (None labels)."""
+        model = Direct(basic_params)
+        
+        batch_size = 4
+        time_series = torch.randn(batch_size, 1, 28, 28)
+        global_features = torch.randn(batch_size, 1)
+        labels = None  # Unlabeled
+        
+        batch = ((time_series, global_features), labels)
+        loss = model.training_step(batch, 0)
+        
+        # Loss should be 0 for unlabeled data
+        assert loss == 0
+
+    def test_direct_validation_step_basic(self, basic_params):
+        """Test validation step."""
+        model = Direct(basic_params)
+        
+        batch_size = 4
+        time_series = torch.randn(batch_size, 1, 28, 28)
+        global_features = torch.randn(batch_size, 1)
+        labels = torch.randint(0, 10, (batch_size,))
+        
+        batch = ((time_series, global_features), labels)
+        result = model.validation_step(batch, 0)
+        
+        assert result is not None
+
 
