@@ -153,6 +153,7 @@ class TestLightningAutoencoderForward:
 class TestLightningAutoencoderTraining:
     """Test training functionality."""
 
+    @pytest.mark.filterwarnings("ignore:You are trying to `self.log.*:UserWarning")
     def test_training_step_labeled(self):
         """Test training step with labeled data."""
         params = get_basic_params()
@@ -170,6 +171,7 @@ class TestLightningAutoencoderTraining:
         assert not torch.isnan(loss)
         assert loss.item() >= 0
 
+    @pytest.mark.filterwarnings("ignore:You are trying to `self.log.*:UserWarning")
     def test_training_step_unlabeled(self):
         """Test training step with unlabeled data."""
         params = get_basic_params()
@@ -185,6 +187,7 @@ class TestLightningAutoencoderTraining:
         
         assert loss.item() >= 0
 
+    @pytest.mark.filterwarnings("ignore:You are trying to `self.log.*:UserWarning")
     def test_validation_step(self):
         """Test validation step."""
         params = get_basic_params()

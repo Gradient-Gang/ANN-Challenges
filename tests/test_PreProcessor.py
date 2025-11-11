@@ -677,8 +677,10 @@ class TestPreProcessorIntegration:
 class TestPreProcessorVisualization:
     """Test visualization methods."""
     
-    def test_plot_one_time_series(self):
+    def test_plot_one_time_series(self, monkeypatch):
         """Test plotting time series (should not raise errors)."""
+        import matplotlib.pyplot as plt
+        
         params = {"verbose": False}
         preprocessor = PreProcessor(params)
         
@@ -696,14 +698,19 @@ class TestPreProcessorVisualization:
             'joint_29': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
         })
         
-        # This should not raise an error (matplotlib backend might be non-interactive)
-        try:
-            import matplotlib
-            matplotlib.use('Agg')  # Use non-interactive backend
-            preprocessor.plot_one_time_series(data, number=1)
-        except Exception:
-            # If plotting fails due to environment, that's okay for testing
-            pass
+        # Mock plt.show() to prevent the warning about non-interactive backend
+        monkeypatch.setattr(plt, 'show', lambda: None)
+        
+        # Use non-interactive backend to prevent display
+        import matplotlib
+        matplotlib.use('Agg')
+        
+        # This should not raise an error
+        preprocessor.plot_one_time_series(data, number=1)
+        
+        # Verify the plot was created (figure exists)
+        assert plt.gcf().number > 0
+        plt.close('all')  # Clean up
 
 
 class TestPreProcessorEdgeCases:
@@ -837,3 +844,262 @@ class TestPreProcessorEdgeCases:
         
         assert result.shape[1] == 0
         assert len(result) == 3
+
+    def test_apply_pca_with_verbose(self, monkeypatch):
+        """Test PCA with verbose mode enabled."""
+        import matplotlib.pyplot as plt
+        
+        params = {
+            "PCA": True,
+            "explained_variance": 0.95,
+            "verbose": True
+        }
+        preprocessor = PreProcessor(params)
+        
+        # Mock plt.show() to prevent display
+        monkeypatch.setattr(plt, 'show', lambda: None)
+        
+        # Use matplotlib non-interactive backend
+        import matplotlib
+        matplotlib.use('Agg')
+        
+        # Create time series data
+        train_data = pd.DataFrame({
+            'sample_index': [0, 0, 0, 1, 1, 1],
+            'time': [0, 1, 2, 0, 1, 2],
+            'feature1': [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            'feature2': [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            'isPirate': [0, 0, 0, 1, 1, 1]
+        })
+        
+        test_data = pd.DataFrame({
+            'sample_index': [0, 0, 0],
+            'time': [0, 1, 2],
+            'feature1': [2.5, 3.5, 4.5],
+            'feature2': [25.0, 35.0, 45.0],
+            'isPirate': [0, 0, 0]
+        })
+        
+        train_pca, test_pca = preprocessor.apply_pca(train_data.copy(), test_data.copy())
+        
+        # Verify PCA was applied
+        assert 'sample_index' in train_pca.columns
+        assert train_pca.shape[0] == 2
+        
+        plt.close('all')
+
+    def test_preprocess_handles_normalization_error(self, capsys):
+        """Test that preprocess handles normalization errors gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create data with problematic values
+            train_data = pd.DataFrame({
+                'sample_index': [0, 1],
+                'time': [0, 0],
+                'n_eyes': ['two', 'two'],
+                'feature1': [float('inf'), 2.0],  # inf value
+                'extra_col': [99, 99]
+            })
+            
+            test_data = pd.DataFrame({
+                'sample_index': [0],
+                'time': [0],
+                'n_eyes': ['two'],
+                'feature1': [1.5],
+                'extra_col': [99]
+            })
+            
+            labels = pd.DataFrame({
+                'label': ['no_pain', 'low_pain']
+            })
+            
+            raw_path = os.path.join(tmpdir, 'raw')
+            processed_path = os.path.join(tmpdir, 'processed')
+            os.makedirs(raw_path)
+            
+            train_data.to_csv(os.path.join(raw_path, 'train.csv'), index=False)
+            test_data.to_csv(os.path.join(raw_path, 'test.csv'), index=False)
+            labels.to_csv(os.path.join(raw_path, 'labels.csv'), index=False)
+            
+            params = {
+                "path_raw_data": raw_path,
+                "path_processed_data": processed_path,
+                "name_train_file": "train.csv",
+                "name_test_file": "test.csv",
+                "name_train_labels_file": "labels.csv",
+                "verbose": False
+            }
+            
+            preprocessor = PreProcessor(params)
+            preprocessor.preprocess()
+            
+            # Should handle inf values without crashing
+            captured = capsys.readouterr()
+            # Either succeeds or reports error
+            assert "Error" in captured.out or os.path.exists(os.path.join(processed_path, 'train.csv'))
+
+    def test_preprocess_handles_pca_error(self, capsys):
+        """Test that preprocess handles PCA errors gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create minimal data that might cause PCA issues
+            train_data = pd.DataFrame({
+                'sample_index': [0],
+                'time': [0],
+                'n_eyes': ['two'],
+                'feature1': [1.0],
+                'extra_col': [99]
+            })
+            
+            test_data = pd.DataFrame({
+                'sample_index': [0],
+                'time': [0],
+                'n_eyes': ['two'],
+                'feature1': [1.5],
+                'extra_col': [99]
+            })
+            
+            labels = pd.DataFrame({
+                'label': ['no_pain']
+            })
+            
+            raw_path = os.path.join(tmpdir, 'raw')
+            processed_path = os.path.join(tmpdir, 'processed')
+            os.makedirs(raw_path)
+            
+            train_data.to_csv(os.path.join(raw_path, 'train.csv'), index=False)
+            test_data.to_csv(os.path.join(raw_path, 'test.csv'), index=False)
+            labels.to_csv(os.path.join(raw_path, 'labels.csv'), index=False)
+            
+            params = {
+                "path_raw_data": raw_path,
+                "path_processed_data": processed_path,
+                "name_train_file": "train.csv",
+                "name_test_file": "test.csv",
+                "name_train_labels_file": "labels.csv",
+                "PCA": True,
+                "explained_variance": 0.95,
+                "verbose": False
+            }
+            
+            preprocessor = PreProcessor(params)
+            preprocessor.preprocess()
+            
+            captured = capsys.readouterr()
+            # Should either succeed or report PCA error
+            assert "Error" in captured.out or "successfully" in captured.out
+
+    def test_preprocess_handles_feature_selection_error(self, capsys):
+        """Test that preprocess handles feature selection errors gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_data = pd.DataFrame({
+                'sample_index': [0, 1],
+                'time': [0, 0],
+                'n_eyes': ['two', 'two'],
+                'feature1': [1.0, 2.0],
+                'extra_col': [99, 99]
+            })
+            
+            test_data = pd.DataFrame({
+                'sample_index': [0],
+                'time': [0],
+                'n_eyes': ['two'],
+                'feature1': [1.5],
+                'extra_col': [99]
+            })
+            
+            labels = pd.DataFrame({
+                'label': ['no_pain', 'low_pain']
+            })
+            
+            raw_path = os.path.join(tmpdir, 'raw')
+            processed_path = os.path.join(tmpdir, 'processed')
+            os.makedirs(raw_path)
+            
+            train_data.to_csv(os.path.join(raw_path, 'train.csv'), index=False)
+            test_data.to_csv(os.path.join(raw_path, 'test.csv'), index=False)
+            labels.to_csv(os.path.join(raw_path, 'labels.csv'), index=False)
+            
+            params = {
+                "path_raw_data": raw_path,
+                "path_processed_data": processed_path,
+                "name_train_file": "train.csv",
+                "name_test_file": "test.csv",
+                "name_train_labels_file": "labels.csv",
+                "feature_selection": True,
+                "feature_selected": ["nonexistent_feature"],  # Feature that doesn't exist
+                "verbose": False
+            }
+            
+            preprocessor = PreProcessor(params)
+            preprocessor.preprocess()
+            
+            captured = capsys.readouterr()
+            # Should report error
+            assert "Error" in captured.out
+
+    def test_preprocess_handles_save_error(self, capsys):
+        """Test that preprocess handles save errors gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            train_data = pd.DataFrame({
+                'sample_index': [0, 1],
+                'time': [0, 0],
+                'n_eyes': ['two', 'two'],
+                'feature1': [1.0, 2.0],
+                'extra_col': [99, 99]
+            })
+            
+            test_data = pd.DataFrame({
+                'sample_index': [0],
+                'time': [0],
+                'n_eyes': ['two'],
+                'feature1': [1.5],
+                'extra_col': [99]
+            })
+            
+            labels = pd.DataFrame({
+                'label': ['no_pain', 'low_pain']
+            })
+            
+            raw_path = os.path.join(tmpdir, 'raw')
+            os.makedirs(raw_path)
+            
+            train_data.to_csv(os.path.join(raw_path, 'train.csv'), index=False)
+            test_data.to_csv(os.path.join(raw_path, 'test.csv'), index=False)
+            labels.to_csv(os.path.join(raw_path, 'labels.csv'), index=False)
+            
+            # Create a read-only directory on Windows (or just test with valid path)
+            import platform
+            if platform.system() == 'Windows':
+                # On Windows, the path will be created successfully, so skip this specific error test
+                # Instead verify the preprocess completes
+                params = {
+                    "path_raw_data": raw_path,
+                    "path_processed_data": os.path.join(tmpdir, 'processed'),
+                    "name_train_file": "train.csv",
+                    "name_test_file": "test.csv",
+                    "name_train_labels_file": "labels.csv",
+                    "verbose": False
+                }
+                
+                preprocessor = PreProcessor(params)
+                preprocessor.preprocess()
+                
+                captured = capsys.readouterr()
+                # Should complete successfully or with error
+                assert "successfully" in captured.out or "Error" in captured.out
+            else:
+                # On Unix-like systems, test with truly invalid path
+                params = {
+                    "path_raw_data": raw_path,
+                    "path_processed_data": "/invalid/readonly/path",
+                    "name_train_file": "train.csv",
+                    "name_test_file": "test.csv",
+                    "name_train_labels_file": "labels.csv",
+                    "verbose": False
+                }
+                
+                preprocessor = PreProcessor(params)
+                preprocessor.preprocess()
+                
+                captured = capsys.readouterr()
+                # Should report save error
+                assert "Error" in captured.out

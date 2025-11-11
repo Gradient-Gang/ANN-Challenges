@@ -1155,3 +1155,34 @@ class TestEncoder:
         for module in encoder.net.modules():
             if isinstance(module, nn.LSTM):
                 assert module.bias == False
+
+    def test_encoder_activation_after_recurrent_layer(self):
+        """Test that activation is skipped after recurrent layers."""
+        params = {
+            "activation_function": "ReLU",
+            "layer_type": [
+                {
+                    "name": "LSTM",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "batch_first": True
+                    }
+                }
+            ]
+        }
+
+        encoder = Encoder(
+            params=params,
+            num_input_channels=1,
+            base_channel_size=64,
+            latent_dim=128
+        )
+
+        x = torch.randn(4, 64, 10)
+        output = encoder.forward(x)
+
+        # Should process successfully without applying activation after LSTM
+        assert isinstance(output, torch.Tensor)
+        assert output.shape == (4, 128)  # Last timestep of LSTM output

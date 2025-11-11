@@ -495,6 +495,7 @@ class TestDirect:
         # Last column should be zeros
         assert torch.allclose(predictions[:, -1], torch.zeros(batch_size))
 
+    @pytest.mark.filterwarnings("ignore:You are trying to `self.log.*:UserWarning")
     def test_direct_training_step_unlabeled(self, basic_params):
         """Test training step with unlabeled data (None labels)."""
         model = Direct(basic_params)
@@ -510,6 +511,7 @@ class TestDirect:
         # Loss should be 0 for unlabeled data
         assert loss == 0
 
+    @pytest.mark.filterwarnings("ignore:You are trying to `self.log.*:UserWarning")
     def test_direct_validation_step_basic(self, basic_params):
         """Test validation step."""
         model = Direct(basic_params)
@@ -523,5 +525,98 @@ class TestDirect:
         result = model.validation_step(batch, 0)
         
         assert result is not None
+
+    def test_direct_with_class_weights(self, basic_params):
+        """Test Direct with class weights loaded from file."""
+        import tempfile
+        import yaml
+        
+        # Create temporary class weights file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            class_weights = {0: 1.0, 1: 1.5, 2: 2.0, 3: 1.2, 4: 1.3, 
+                           5: 1.1, 6: 1.4, 7: 1.6, 8: 1.7, 9: 1.8}
+            yaml.dump(class_weights, f)
+            weights_path = f.name
+        
+        try:
+            params = basic_params.copy()
+            params["ClassWeightsPath"] = weights_path
+            
+            model = Direct(params)
+            
+            # Verify class weights were loaded
+            assert hasattr(model, 'class_weights')
+            assert model.class_weights is not None
+            assert len(model.class_weights) == 10
+            assert model.class_weights[0] == 1.0
+            assert model.class_weights[2] == 2.0
+        finally:
+            import os
+            os.unlink(weights_path)
+    
+    def test_direct_with_invalid_class_weights_path(self, basic_params, capsys):
+        """Test Direct with invalid class weights path."""
+        params = basic_params.copy()
+        params["ClassWeightsPath"] = "/nonexistent/path/weights.yaml"
+        
+        model = Direct(params)
+        
+        # Should print error but not crash
+        captured = capsys.readouterr()
+        assert "Error" in captured.out or model.class_weights is None
+    
+    @pytest.mark.filterwarnings("ignore:You are trying to `self.log.*:UserWarning")
+    def test_direct_training_step_with_class_weights(self, basic_params):
+        """Test training step uses class weights when available."""
+        import tempfile
+        import yaml
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            class_weights = {i: 1.0 + i * 0.1 for i in range(10)}
+            yaml.dump(class_weights, f)
+            weights_path = f.name
+        
+        try:
+            params = basic_params.copy()
+            params["ClassWeightsPath"] = weights_path
+            model = Direct(params)
+            
+            batch_size = 4
+            time_series = torch.randn(batch_size, 1, 28, 28)
+            global_features = torch.randn(batch_size, 1)
+            labels = torch.randint(0, 10, (batch_size,))
+            
+            batch = ((time_series, global_features), labels)
+            loss = model.training_step(batch, 0)
+            
+            assert loss is not None
+            assert loss > 0
+        finally:
+            import os
+            os.unlink(weights_path)
+    
+    def test_direct_on_validation_epoch_end(self, basic_params):
+        """Test validation epoch end resets F1 metric."""
+        model = Direct(basic_params)
+        
+        # Call method - should not raise error
+        model.on_validation_epoch_end()
+        
+        # Verify metric exists and is callable
+        assert hasattr(model.val_f1, 'reset')
+    
+    def test_direct_configure_optimizers(self, basic_params):
+        """Test optimizer configuration."""
+        model = Direct(basic_params)
+        
+        result = model.configure_optimizers()
+        
+        assert result is not None
+        # Returns a dict with optimizer and lr_scheduler
+        assert isinstance(result, dict)
+        assert 'optimizer' in result
+        assert 'lr_scheduler' in result
+        assert hasattr(result['optimizer'], 'step')
+        assert hasattr(result['optimizer'], 'zero_grad')
 
 

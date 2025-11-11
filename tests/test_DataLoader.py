@@ -144,4 +144,70 @@ class TestDataModule:
         test_loader = dm.test_dataloader()
         assert test_loader is not None
 
+    def test_dataloader_predict_dataloader(self, sample_data_dir):
+        """Test predict_dataloader returns test DataLoader."""
+        params = {
+            "data_dir": sample_data_dir,
+            "train_file_name": "train.csv",
+            "train_file_name_labels": "train_labels.csv",
+            "test_file_name": "test.csv",
+            "batch_size": 2,
+            "num_workers": 0,
+            "val_split": 0.2
+        }
+        
+        dm = DataModule(params)
+        dm.setup()
+        
+        predict_loader = dm.predict_dataloader()
+        assert predict_loader is not None
+        # Should be same as test_dataloader
+        test_loader = dm.test_dataloader()
+        assert predict_loader.dataset == test_loader.dataset
+
+    def test_dataloader_without_setup_raises_error(self, sample_data_dir):
+        """Test that accessing dataloaders without setup raises AttributeError or RuntimeError."""
+        params = {
+            "data_dir": sample_data_dir,
+            "train_file_name": "train.csv",
+            "train_file_name_labels": "train_labels.csv",
+            "test_file_name": "test.csv",
+            "batch_size": 2,
+            "num_workers": 0,
+            "val_split": 0.2
+        }
+        
+        dm = DataModule(params)
+        
+        # Should raise AttributeError or RuntimeError when datasets not initialized
+        with pytest.raises((RuntimeError, AttributeError)):
+            dm.train_dataloader()
+        
+        with pytest.raises((RuntimeError, AttributeError)):
+            dm.val_dataloader()
+        
+        with pytest.raises((RuntimeError, AttributeError)):
+            dm.test_dataloader()
+
+    def test_dataloader_cuda_pin_memory(self, sample_data_dir, monkeypatch):
+        """Test that pin_memory is set based on CUDA availability."""
+        params = {
+            "data_dir": sample_data_dir,
+            "train_file_name": "train.csv",
+            "train_file_name_labels": "train_labels.csv",
+            "test_file_name": "test.csv",
+            "batch_size": 2,
+            "num_workers": 0,
+            "val_split": 0.2
+        }
+        
+        # Mock CUDA availability
+        monkeypatch.setattr(torch.cuda, 'is_available', lambda: True)
+        
+        dm = DataModule(params)
+        dm.setup()
+        
+        train_loader = dm.train_dataloader()
+        assert train_loader.pin_memory is True
+
 
