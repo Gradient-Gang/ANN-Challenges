@@ -84,10 +84,22 @@ class OptunaOptimizer:
     
     # objective section
     def objective(self, trial: optuna.trial.BaseTrial):
-        dict_arch = self.build_architecture_data(self.dict_arch, trial)
-        dict_data = self.getParams(self.dict_data_d, trial)
+        dict_data = self.build({}, self.hyperparams_data, trial)
+        dict_arch = self.build(self.architecture, self.hyperparams_arch, trial)
 
         return self.pipeline.fit_and_validate(dict_arch, dict_data)
+
+    def build(self, skeleton: dict, hyperparams: dict, trial: optuna.trial.BaseTrial):
+        arch = skeleton.copy()
+
+        for h in hyperparams:
+            hp = hyperparams[h]
+            curr = arch
+            for k in hp.paths[:-1]:
+                curr = curr[k]
+            curr[hp.name] = hp.getValue(trial)
+        
+        return arch
 
     def optimize(
         self,
