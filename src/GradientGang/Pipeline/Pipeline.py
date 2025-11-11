@@ -61,7 +61,7 @@ class Pipeline:
         self.data_loader.setup(**dict_data)
 
         # Train the architecture
-        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping])
+        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping], max_epochs=5)
         trainer.fit(arch, train_dataloaders=self.data_loader.train_dataloader(), val_dataloaders=self.data_loader.val_dataloader())
 
         return checkpoint_callback.best_model_score
