@@ -43,50 +43,46 @@ class OptunaOptimizer:
                 raise NotImplementedError("Architecture and layer suggestion not implemented yet")
 
     def __init__(self, dict_config):
-        self.dict_data_s = dict_config["data_static"]
-        self.dict_data_d = dict_config["data_dynamic"]
-        self.dict_arch = dict_config["arch"]
+        # setup hyperparameters
+        self.hyperparams_data = self.load_hyperparameters(dict_config["hyper_dataloader"])
+        self.hyperparams_arch = self.load_hyperparameters(dict_config["hyper_arch"])
 
-        self.pipeline = Pipeline(self.dict_data_s)
+        # setup structure
+        self.dataloader = dict_config["dataloader"]
+        self.architecture = dict_config["arch"]
 
-    def getParams(
-        self, params: dict, trial: optuna.trial.BaseTrial
-    ):
-        """
-        Get the parameters for the current trial.
-        Args:
-            params (dict): The parameter configuration dictionary.
-            trial (optuna.trial.BaseTrial): The current Optuna trial.
-        Returns:
-            dict: The interpreted parameters for the trial.
-        """
+        # setup pipeline
+        self.pipeline = Pipeline(dict_config["dataloader"])
 
-        # Dictionary to hold the interpreted parameter values
-        vals = {}
+    def load_hyperparameters(self, list_hyperparams: list):
+        hp = {}
 
-        # Mapping of parameter types to Optuna suggestion methods
-        interpretation = {
-            "categ": trial.suggest_categorical,
-            "float": trial.suggest_float,
-            "int": trial.suggest_int,
-            "value": lambda x: x
-        }
+        for h in list_hyperparams:
+            hp[h] = OptunaOptimizer.HyperParameter(list_hyperparams[h])
         
-        # Required parameters for each parameter type
-        required = {"type": str, "params": dict}
-        parameterInterpreter = ParameterInterpreter(interpretation, requiredParams=required)
+        return hp
 
-        # Interpret each parameter using the ParameterInterpreter
-        for k in params:
-            parameterInterpreter.checkRequiredParams(params[k])
+    # def build_architecture_skeleton(self, arch, path):
+    #     sk = None
 
-            vals[k] = parameterInterpreter.interpret(params[k]["type"])(**params[k]["params"])
-
-        return vals
-
-    def build_architecture_data(self, params, trial):
-        pass
-
+    #     if isinstance(arch, list):
+    #         sk = []
+    #         for i in range(len(arch)):
+    #             sk.append(self.build_architecture_skeleton(arch[i], path + [i]))
+    #     elif isinstance(arch, dict):
+    #         sk = {}
+    #         for k in arch:
+    #             if k in self.hyperparams_arch:   # hyper parameter found
+    #                 self.hyperparams_arch[k].path.append(path)
+    #             elif isinstance(arch[k], dict) or isinstance(arch[k], list):
+    #                 sk[k] = self.build_architecture_skeleton(arch[k], path + [k])
+    #             else:
+    #                 sk[k] = arch[k]
+    #     else:
+    #         raise ValueError("build_architecture_skeleton called on neither list or dictionary")
+    #     return sk
+    
+    # objective section
     def objective(self, trial: optuna.trial.BaseTrial):
         dict_arch = self.build_architecture_data(self.dict_arch, trial)
         dict_data = self.getParams(self.dict_data_d, trial)
