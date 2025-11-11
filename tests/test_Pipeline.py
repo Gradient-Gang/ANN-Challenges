@@ -257,3 +257,92 @@ def test_pipeline_multiple_builds(dict_loader_config, valid_arch_params):
     # They should be different instances
     assert arch1 is not arch2
 
+
+# Test fit_and_validate method
+def test_fit_and_validate_has_correct_signature(dict_loader_config):
+    """Test that fit_and_validate method exists with correct signature."""
+    pipeline = Pipeline(dict_loader_config)
+    import inspect
+    sig = inspect.signature(pipeline.fit_and_validate)
+    params = list(sig.parameters.keys())
+    assert 'dict_arch' in params
+    assert 'dict_data' in params
+
+
+def test_fit_and_validate_builds_architecture(dict_loader_config, valid_arch_params, monkeypatch):
+    """Test that fit_and_validate builds the architecture."""
+    pipeline = Pipeline(dict_loader_config)
+    
+    # Track if build_architecture was called
+    build_called = []
+    original_build = pipeline.build_architecture
+    
+    def mock_build(params):
+        build_called.append(params)
+        return original_build(params)
+    
+    monkeypatch.setattr(pipeline, 'build_architecture', mock_build)
+    
+    # Mock trainer to avoid actual training
+    class MockTrainer:
+        def __init__(self, *args, **kwargs):
+            pass
+        def fit(self, *args, **kwargs):
+            pass
+    
+    monkeypatch.setattr(L, 'Trainer', MockTrainer)
+    
+    dict_data = {
+        "test_split": 0.2,
+        "is_3d": True,
+        "seed": 42
+    }
+    
+    try:
+        pipeline.fit_and_validate(valid_arch_params, dict_data)
+    except Exception:
+        pass  # We expect some errors due to mocking
+    
+    # Verify build_architecture was called
+    assert len(build_called) > 0
+    assert build_called[0] == valid_arch_params
+
+
+def test_fit_and_validate_configures_loader(dict_loader_config, valid_arch_params, monkeypatch):
+    """Test that fit_and_validate configures the data loader."""
+    pipeline = Pipeline(dict_loader_config)
+    
+    # Track if setup was called
+    setup_called = []
+    original_setup = pipeline.data_loader.setup
+    
+    def mock_setup(**kwargs):
+        setup_called.append(kwargs)
+        return original_setup(**kwargs)
+    
+    monkeypatch.setattr(pipeline.data_loader, 'setup', mock_setup)
+    
+    # Mock trainer
+    class MockTrainer:
+        def __init__(self, *args, **kwargs):
+            pass
+        def fit(self, *args, **kwargs):
+            pass
+    
+    monkeypatch.setattr(L, 'Trainer', MockTrainer)
+    
+    dict_data = {
+        "test_split": 0.2,
+        "is_3d": True,
+        "seed": 42
+    }
+    
+    try:
+        pipeline.fit_and_validate(valid_arch_params, dict_data)
+    except Exception:
+        pass
+    
+    # Verify setup was called with correct params
+    assert len(setup_called) > 0
+    assert setup_called[0] == dict_data
+
