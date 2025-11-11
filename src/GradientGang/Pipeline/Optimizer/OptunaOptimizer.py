@@ -2,7 +2,46 @@ import optuna
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from ..Pipeline import Pipeline
 
+"""
+Structure:
+- dataloader
+- hyper_dataloader
+    - HYPERPARAMETER_DATA
+- arch
+- hyper_arch
+    - HYPERPARAMETER_DATA
+
+Definition of HYPERPARAMETER_DATA:
+- name
+- type one of {categ, float, int, categ_arch, repeated_arch}
+- opts
+    - categ {choices*: list}
+    - float {min*, max*, step, log} all data is float, log is bool
+    - int {min*, max*, step, log} all data is int, log is bool
+    - arch {choices*: list, min*, max*}
+"""
+
 class OptunaOptimizer:
+    # setup section
+    class HyperParameter:
+        def __init__(self, params):
+            self.name = params["name"]
+            self.type = params["type"]
+            self.opts = params["opts"]
+            self.paths = params["paths"]
+        
+        def getValue(self, trial: optuna.trial.BaseTrial):
+            if self.type == "categ":
+                return trial.suggest_categorical(self.name, **self.opts)
+            elif self.type == "float":
+                return trial.suggest_float(self.name, **self.opts)
+            elif self.type == "int":
+                return trial.suggest_int(self.name, **self.opts)
+            elif self.type == "value":
+                return self.opts["value"]
+            elif self.type == "arch":
+                raise NotImplementedError("Architecture and layer suggestion not implemented yet")
+
     def __init__(self, dict_config):
         self.dict_data_s = dict_config["data_static"]
         self.dict_data_d = dict_config["data_dynamic"]
