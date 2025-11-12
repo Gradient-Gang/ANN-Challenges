@@ -381,6 +381,12 @@ class LightningAutoencoder(L.LightningModule):
         """
         self.val_f1.reset()
 
+    def on_train_epoch_end(self):
+        """
+        Reset F1 metric at the end of each training epoch.
+        """
+        self.val_f1.reset()
+
     def get_embeddings(self, x):
         """
         Get latent embeddings from the encoder using no_grad.
