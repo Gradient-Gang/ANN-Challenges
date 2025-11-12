@@ -116,7 +116,7 @@ class LightningAutoencoder(L.LightningModule):
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
-        self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
+        self.f1Function = F1Score(task="multiclass", num_classes=output_dim)
 
         # Initialize loss functions
         self.reconstructionLossFunction = torch.nn.MSELoss()
@@ -262,7 +262,7 @@ class LightningAutoencoder(L.LightningModule):
             availableTargets = classTargets[labeled_mask]
             availablePredictionsLogits = classPredictions[labeled_mask]
             availablePredictions = torch.argmax(availablePredictionsLogits, dim=1)
-            f1 = self.val_f1(availablePredictions, availableTargets)
+            f1 = self.f1Function(availablePredictions, availableTargets)
         return f1
 
     def training_step(self, batch, batch_idx):
@@ -379,13 +379,13 @@ class LightningAutoencoder(L.LightningModule):
         """
         Reset F1 metric at the end of each validation epoch.
         """
-        self.val_f1.reset()
+        self.f1Function.reset()
 
     def on_train_epoch_end(self):
         """
         Reset F1 metric at the end of each training epoch.
         """
-        self.val_f1.reset()
+        self.f1Function.reset()
 
     def get_embeddings(self, x):
         """

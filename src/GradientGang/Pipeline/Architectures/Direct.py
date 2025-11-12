@@ -1,6 +1,7 @@
 import pytorch_lightning as L
 import torch
 import yaml
+from typing import Optional, Literal
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Encoder import Encoder
 from .FeedForward import FeedForward
@@ -14,7 +15,7 @@ class Direct(L.LightningModule):
         name="DirectInterpreter",
         interpretation={
             "ClassWeightsPath": str,
-            "Validation": bool,
+            "SchedulerMonitoringTarget": str,  # TODO: find a way to enforce this to be either "val" or "train"
         },
         requiredParams={
             "EncoderParams": dict,
@@ -44,7 +45,7 @@ class Direct(L.LightningModule):
         # Store params for later use
         self.params = params
 
-        self.validation = params.get("Validation", True)
+        self.schedulerMonitoringTarget = params.get("SchedulerMonitoringTarget", "val")
 
         encoder_params = params["EncoderParams"]
         global_ff_encoder_params = params["GlobalFFEncoderParams"]
@@ -61,6 +62,8 @@ class Direct(L.LightningModule):
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn
         )
         self.globalff_encoder = FeedForward(global_ff_encoder_params)
+
+        # Add a final linear layer to feedforward to match output_dim
         feedforward_params["layer_type"].append(
             {
                 "name": "Linear",
@@ -68,7 +71,7 @@ class Direct(L.LightningModule):
                     "in_features": feedforward_params["layer_type"][-1]["params"][
                         "out_features"
                     ],
-                    "out_features": output_dim - 1,
+                    "out_features": output_dim,
                     "bias": True,
                 },
             }
@@ -78,30 +81,92 @@ class Direct(L.LightningModule):
 
         class_weights_path = params.get("ClassWeightsPath")
 
+        # Default: ones
+        class_weights_tensor = torch.ones(output_dim, dtype=torch.float32)
+
         if class_weights_path:
             try:
-                with open(class_weights_path, 'r') as f:
-                    class_weights_dict = yaml.safe_load(f)
-                # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
-                # Assumes class labels are integers 0 to output_dim-1
-                # Handle both integer and string keys in the YAML file
-                class_weights_list = []
-                for i in range(output_dim):
-                    class_weights_list.append(class_weights_dict[i])
-                class_weights_tensor = torch.tensor(
-                    class_weights_list, dtype=torch.float32)
-                # Register as buffer so it moves with the model to the correct device
-                self.register_buffer('class_weights', class_weights_tensor)
+                with open(class_weights_path, "r") as f:
+                    loaded = yaml.safe_load(f)
+
+                # YAML can load a list or a dict. Normalize to list of length output_dim.
+                if isinstance(loaded, dict):
+                    # Support string keys '0', '1' as well as int keys
+                    class_weights_list = []
+                    for i in range(output_dim):
+                        # Try int key, then str key
+                        if i in loaded:
+                            class_weights_list.append(loaded[i])
+                        elif str(i) in loaded:
+                            class_weights_list.append(loaded[str(i)])
+                        else:
+                            raise KeyError(f"Missing class weight for index {i}")
+                    class_weights_tensor = torch.tensor(
+                        class_weights_list, dtype=torch.float32
+                    )
+                elif isinstance(loaded, (list, tuple)):
+                    if len(loaded) != output_dim:
+                        raise ValueError(
+                            f"Class weights length {len(loaded)} does not match OutputDim {output_dim}"
+                        )
+                    class_weights_tensor = torch.tensor(
+                        list(loaded), dtype=torch.float32
+                    )
+                else:
+                    raise TypeError("ClassWeights YAML must contain a dict or list")
+
             except Exception as e:
+                # Fall back to ones but print a concise warning
                 print(
-                    f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
-        else:
-            # No path provided, use equal weights (all ones)
-            class_weights_tensor = torch.ones(output_dim, dtype=torch.float32)
-            self.register_buffer('class_weights', class_weights_tensor)
+                    f"Warning: could not load class weights from {class_weights_path}: {e}; using ones"
+                )
+
+        # Register as buffer so it moves with the model to the correct device
+        self.register_buffer("class_weights", class_weights_tensor)
 
         # Initialize F1Score metric as instance variable
-        self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
+        self.f1Function = F1Score(task="multiclass", num_classes=output_dim)
+
+        # Prepare prediction loss function using the registered class_weights buffer
+        weight_tensor: Optional[torch.Tensor] = (
+            self.class_weights if isinstance(self.class_weights, torch.Tensor) else None
+        )
+        self.predictionLossFunction = torch.nn.CrossEntropyLoss(weight=weight_tensor)
+
+    def computePredictionLoss(
+        self, classTargets: torch.Tensor, classPredictions: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute prediction loss while ignoring unlabeled targets (labels < 0).
+
+        Returns a tensor on the module device.
+        """
+        labeled_mask = classTargets >= 0
+        if labeled_mask.any():
+            availableTargets = classTargets[labeled_mask]
+            availablePredictionsLogits = classPredictions[labeled_mask]
+            prediction_loss = self.predictionLossFunction(
+                availablePredictionsLogits, availableTargets
+            )
+        else:
+            prediction_loss = torch.tensor(0.0, device=self.device)
+
+        return prediction_loss
+
+    def computeF1Score(
+        self, classTargets: torch.Tensor, classPredictions: torch.Tensor
+    ) -> float:
+        """Compute F1 score for available (non-negative) targets.
+
+        Uses internal `self.val_f1` metric; does not reset it.
+        """
+        labeled_mask = classTargets >= 0
+        f1 = 0.0
+        if labeled_mask.any():
+            availableTargets = classTargets[labeled_mask]
+            availablePredictionsLogits = classPredictions[labeled_mask]
+            availablePredictions = torch.argmax(availablePredictionsLogits, dim=1)
+            f1 = self.f1Function(availablePredictions, availableTargets)
+        return f1
 
     def forward(self, x):
         """
@@ -112,7 +177,6 @@ class Direct(L.LightningModule):
             torch.Tensor: Predictions with an additional zero column.
 
         """
-
         # Unpack input tuple
         timeSeries = x[0]
         globalFeatures = x[1]
@@ -125,12 +189,7 @@ class Direct(L.LightningModule):
         )
         predictions = self.feedforward(combined_encoded)
 
-        # Append a column of zeros to the predictions
-        zero_tensor = torch.zeros(
-            (predictions.size(0), 1), device=predictions.device)
-        predictions = torch.cat((predictions, zero_tensor), dim=-1)
-
-        # Return final predictions
+        # Return final predictions (shape: batch x output_dim)
         return predictions
 
     def configure_optimizers(self):
@@ -153,7 +212,7 @@ class Direct(L.LightningModule):
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
         )
-        monitor = "val_loss" if self.validation else "train_loss"
+        monitor = f"{self.schedulerMonitoringTarget}_loss"
         return {
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": monitor},
@@ -161,27 +220,34 @@ class Direct(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """
-        Training step for Direct architecture.
+        Training step for Lightning Autoencoder architecture.
         Args:
             batch (tuple): A tuple containing input data and target labels.
             batch_idx (int): Index of the current batch.
         Returns:
             torch.Tensor: Computed loss for the batch.
         """
+        # Decode inputs
+        inputData, classTargets = batch
+        timeSeries, globalFeatures = inputData
 
-        # Unpack batch
-        x, y = batch
-        predictions = self.forward(x)
+        # Compute predictions
+        classPredictions = self.forward(inputData)
 
-        if y is not None:
-            # Define class weights - adjust these values based on your class distribution
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(
-                weight=self.class_weights)
-            loss = loss_fn_prediction(predictions, y)
-        else:
-            loss = 0
+        # Compute prediction loss
+        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
 
+        # Compute complete loss
+        loss = predictionLoss
+
+        # Compute F1 score
+        f1 = self.computeF1Score(classTargets, classPredictions)
+
+        # Logging
+        self.log("train_prediction_loss", predictionLoss)
         self.log("train_loss", loss)
+        self.log("train_F1", f1, prog_bar=True)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -193,24 +259,37 @@ class Direct(L.LightningModule):
         Returns:
             float: Computed F1 score for the batch.
         """
-        x, y = batch
-        predictions = self.forward(x)
-        if y is not None:
-            # Define class weights - adjust these values based on your class distribution
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(
-                weight=self.class_weights)
-            loss = loss_fn_prediction(predictions, y)
-        else:
-            loss = 0
-        # Update the F1 metric with predictions and targets
-        self.val_f1.update(predictions, y)
-        f1_score = self.val_f1.compute()
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_F1", f1_score, prog_bar=True)
-        return f1_score
+        # Decode inputs
+        inputData, classTargets = batch
+        timeSeries, globalFeatures = inputData
+
+        # Compute predictions
+        classPredictions = self.forward(inputData)
+
+        # Compute prediction loss
+        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
+
+        # Compute complete loss
+        loss = predictionLoss
+
+        # Compute F1 score
+        f1 = self.computeF1Score(classTargets, classPredictions)
+
+        # Logging
+        self.log("val_prediction_loss", predictionLoss)
+        self.log("val_loss", loss)
+        self.log("val_F1", f1, prog_bar=True)
+
+        return loss
 
     def on_validation_epoch_end(self):
         """
         Reset F1 metric at the end of each validation epoch.
         """
-        self.val_f1.reset()
+        self.f1Function.reset()
+
+    def on_train_epoch_end(self):
+        """
+        Reset F1 metric at the end of each training epoch.
+        """
+        self.f1Function.reset()
