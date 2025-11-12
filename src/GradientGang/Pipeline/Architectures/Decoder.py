@@ -17,6 +17,9 @@ class Decoder(nn.Module):
             "Conv1d": nn.Conv1d,
             "ConvTranspose2d": nn.ConvTranspose2d,
             "ConvTranspose1d": nn.ConvTranspose1d,
+            "MaxPool1d": nn.MaxPool1d,
+            "AvgPool1d": nn.AvgPool1d,
+            "AdaptiveAvgPool1d": nn.AdaptiveAvgPool1d,
             "Unflatten": nn.Unflatten,
             "Sigmoid": nn.Sigmoid,
             "Tanh": nn.Tanh,
@@ -67,6 +70,33 @@ class Decoder(nn.Module):
                         "padding_mode": str,
                         "device": str,
                         "dtype": str,
+                    },
+                },
+                {
+                    "name": "MaxPool1d",
+                    "params": {
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "dilation": int,
+                        "return_indices": bool,
+                        "ceil_mode": bool,
+                    },
+                },
+                {
+                    "name": "AvgPool1d",
+                    "params": {
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "ceil_mode": bool,
+                        "count_include_pad": bool,
+                    },
+                },
+                {
+                    "name": "AdaptiveAvgPool1d",
+                    "params": {
+                        "output_size": int,
                     },
                 },
                 {
@@ -231,9 +261,7 @@ class Decoder(nn.Module):
 
         self.net = nn.Sequential(*modules)
 
-    def forward(
-        self, x, seq_len=None
-    ):
+    def forward(self, x, seq_len=None):
         """
         Forward pass for decoder.
 
@@ -268,7 +296,9 @@ class Decoder(nn.Module):
                     # RNN layers return (output, hidden_state) or (output, (hidden, cell))
                     x, _ = layer(x)
                     prev_was_recurrent = True
-                elif isinstance(layer, (nn.ReLU, nn.GELU, nn.LeakyReLU, nn.Sigmoid, nn.Tanh)):
+                elif isinstance(
+                    layer, (nn.ReLU, nn.GELU, nn.LeakyReLU, nn.Sigmoid, nn.Tanh)
+                ):
                     # Skip activation after recurrent layers (they output sequences)
                     if not prev_was_recurrent:
                         x = layer(x)

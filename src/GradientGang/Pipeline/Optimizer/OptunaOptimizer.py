@@ -1,106 +1,75 @@
 import optuna
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from ..Pipeline import Pipeline
+from .HyperParameter import HyperParameter, HyperParameterConstraint
 
 """
 Structure:
 - dataloader
 - hyper_dataloader
     - HYPERPARAMETER_DATA
+- constr_dataloader
+    - CONSTR_DATA
 - arch
 - hyper_arch
     - HYPERPARAMETER_DATA
+- constr_arch
+    - CONSTR_DATA
 
 Definition of HYPERPARAMETER_DATA:
 - name
-- type one of {categ, float, int, categ_arch, repeated_arch}
+- type one of {categ, float, int, arch}
 - opts
     - categ {choices*: list}
     - float {min*, max*, step, log} all data is float, log is bool
     - int {min*, max*, step, log} all data is int, log is bool
-    - arch {choices*: list, min*, max*}
+    - arch {names*: list, archs*: dict, min_layers*, max_layers*, constraint}
+- path
+
+Definition of CONSTRAINTS:
+- hyperparams: list
+- function
 """
 
 class OptunaOptimizer:
     # setup section
-    class HyperParameter:
-        def __init__(self, params):
-            self.name = params["name"]
-            self.type = params["type"]
-            self.opts = params["opts"]
-            self.paths = params["paths"]
-        
-        def getValue(self, trial: optuna.trial.BaseTrial):
-            if self.type == "categ":
-                return trial.suggest_categorical(self.name, **self.opts)
-            elif self.type == "float":
-                return trial.suggest_float(self.name, **self.opts)
-            elif self.type == "int":
-                return trial.suggest_int(self.name, **self.opts)
-            elif self.type == "value":
-                return self.opts["value"]
-            elif self.type == "arch":
-                raise NotImplementedError("Architecture and layer suggestion not implemented yet")
-
     def __init__(self, dict_config):
+        self.constr_map = {}
+
         # setup hyperparameters
-        self.hyperparams_data = self.load_hyperparameters(dict_config["hyper_dataloader"])
-        self.hyperparams_arch = self.load_hyperparameters(dict_config["hyper_arch"])
+        self.hyperparams_data, self.constr_data = self.load_hyperparameters(
+            dict_config["hyper_dataloader"],
+            dict_config["constr_dataloader"]
+        )
+        self.hyperparams_arch, self.constr_arch = self.load_hyperparameters(
+            dict_config["hyper_arch"],
+            dict_config["constr_arch"]
+        )
 
         # setup structure
-        self.dataloader = dict_config["dataloader"]
         self.architecture = dict_config["arch"]
 
         # setup pipeline
         self.pipeline = Pipeline(dict_config["dataloader"])
 
-    def load_hyperparameters(self, list_hyperparams: list):
+    def load_hyperparameters(self, list_hyperparams: list, constraints: list):
         hp = {}
+        constr = {}
 
+        # build all hyperparameters (computes also nested ones in the HyperParameter constructor)
         for h in list_hyperparams:
-            hp[h] = OptunaOptimizer.HyperParameter(list_hyperparams[h])
+            hp[h] = HyperParameter(list_hyperparams[h], constr)
         
-        return hp
+        # assigns all constraints
+        for c in constraints:
+            constr[constraints[c]["name"]] = HyperParameterConstraint(self.constr_map[constraints[c]["function"]])
 
-    # def build_architecture_skeleton(self, arch, path):
-    #     sk = None
+            for h in constraints[c]["hyperparams"]:
+                constr[-1].params.append(hp[h])
 
-    #     if isinstance(arch, list):
-    #         sk = []
-    #         for i in range(len(arch)):
-    #             sk.append(self.build_architecture_skeleton(arch[i], path + [i]))
-    #     elif isinstance(arch, dict):
-    #         sk = {}
-    #         for k in arch:
-    #             if k in self.hyperparams_arch:   # hyper parameter found
-    #                 self.hyperparams_arch[k].path.append(path)
-    #             elif isinstance(arch[k], dict) or isinstance(arch[k], list):
-    #                 sk[k] = self.build_architecture_skeleton(arch[k], path + [k])
-    #             else:
-    #                 sk[k] = arch[k]
-    #     else:
-    #         raise ValueError("build_architecture_skeleton called on neither list or dictionary")
-    #     return sk
+        return (hp, constr)
     
     # objective section
-    def objective(self, trial: optuna.trial.BaseTrial):
-        dict_data = self.build({}, self.hyperparams_data, trial)
-        dict_arch = self.build(self.architecture, self.hyperparams_arch, trial)
-
-        return self.pipeline.fit_and_validate(dict_arch, dict_data)
-
-    def build(self, skeleton: dict, hyperparams: dict, trial: optuna.trial.BaseTrial):
-        arch = skeleton.copy()
-
-        for h in hyperparams:
-            hp = hyperparams[h]
-            curr = arch
-            for k in hp.paths[:-1]:
-                curr = curr[k]
-            curr[hp.name] = hp.getValue(trial)
-        
-        return arch
-
     def optimize(
         self,
         n_trials: int = None
@@ -121,3 +90,23 @@ class OptunaOptimizer:
 
         # Return the completed study
         return study
+
+    def objective(self, trial: optuna.trial.BaseTrial):
+        dict_data = self.build({}, self.hyperparams_data, trial)
+        dict_arch = self.build(self.architecture, self.hyperparams_arch, trial)
+
+        return self.pipeline.fit_and_validate(dict_arch, dict_data)
+
+    def build(self, skeleton: dict, hyperparams: list, trial: optuna.trial.BaseTrial):
+        arch = skeleton.copy()
+
+        for h in hyperparams:
+            curr = arch
+            for k in h.path[:-1]:
+                curr = curr[k]
+            if isinstance(curr, list):
+                curr[h.path[-1]:h.path[-1]] = h.getValue(trial)
+            else:
+                curr[h.path[-1]] = h.getValue(trial)
+        
+        return arch
