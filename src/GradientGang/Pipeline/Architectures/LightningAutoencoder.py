@@ -14,7 +14,8 @@ class LightningAutoencoder(L.LightningModule):
     # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={"ClassWeightsPath": str},
+        interpretation={"ClassWeightsPath": str,
+                        "Validation": bool, },
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -52,7 +53,8 @@ class LightningAutoencoder(L.LightningModule):
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
 
-        self.reconstruction_loss_weight = params.get("ReconstructionLossWeight", 0.5)
+        self.reconstruction_loss_weight = params.get(
+            "ReconstructionLossWeight", 0.5)
         assert (
             0 <= self.reconstruction_loss_weight <= 1.0
         ), "ReconstructionLossWeight must be between 0 and 1."
@@ -122,9 +124,11 @@ class LightningAutoencoder(L.LightningModule):
         self.reconstructionLossFunction = torch.nn.MSELoss()
 
         weight_tensor: Optional[torch.Tensor] = (
-            self.class_weights if isinstance(self.class_weights, torch.Tensor) else None
+            self.class_weights if isinstance(
+                self.class_weights, torch.Tensor) else None
         )
-        self.predictionLossFunction = torch.nn.CrossEntropyLoss(weight=weight_tensor)
+        self.predictionLossFunction = torch.nn.CrossEntropyLoss(
+            weight=weight_tensor)
 
     def forward(self, x) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
@@ -140,7 +144,8 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # timeSeries shape: (batch, features, seq_len) = (batch, 34, 160)
         # We need seq_len which is shape[2]
-        original_seq_len = timeSeries.shape[2] if len(timeSeries.shape) == 3 else None
+        original_seq_len = timeSeries.shape[2] if len(
+            timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
@@ -173,9 +178,11 @@ class LightningAutoencoder(L.LightningModule):
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
         )
+        monitor = "val_loss" if self.params.get(
+            "Validation", True) else "train_loss"
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"},
+            "lr_scheduler": {"scheduler": scheduler, "monitor": monitor},
         }
 
     def computeReconstructionLoss(
@@ -207,7 +214,8 @@ class LightningAutoencoder(L.LightningModule):
         )
 
         # Global Features
-        globalFeatures_flat = globalFeaturesTrue.reshape(globalFeaturesTrue.size(0), -1)
+        globalFeatures_flat = globalFeaturesTrue.reshape(
+            globalFeaturesTrue.size(0), -1)
         globalFeaturesReconstructed_flat = globalFeaturesReconstructed.reshape(
             globalFeaturesReconstructed.size(0), -1
         )
@@ -261,7 +269,8 @@ class LightningAutoencoder(L.LightningModule):
         if labeled_mask.any():
             availableTargets = classTargets[labeled_mask]
             availablePredictionsLogits = classPredictions[labeled_mask]
-            availablePredictions = torch.argmax(availablePredictionsLogits, dim=1)
+            availablePredictions = torch.argmax(
+                availablePredictionsLogits, dim=1)
             f1 = self.val_f1(availablePredictions, availableTargets)
         return f1
 
@@ -297,7 +306,8 @@ class LightningAutoencoder(L.LightningModule):
         )
 
         # Compute prediction loss
-        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
+        predictionLoss = self.computePredictionLoss(
+            classTargets, classPredictions)
 
         # Compute complete loss
         loss = (
@@ -309,7 +319,8 @@ class LightningAutoencoder(L.LightningModule):
         f1 = self.computeF1Score(classTargets, classPredictions)
 
         # Logging
-        self.log("train_reconstruction_loss_timeSeries", reconstructionLossTimeSeries)
+        self.log("train_reconstruction_loss_timeSeries",
+                 reconstructionLossTimeSeries)
         self.log(
             "train_reconstruction_loss_globalFeatures", reconstructionLossGlobalFeatures
         )
@@ -352,7 +363,8 @@ class LightningAutoencoder(L.LightningModule):
         )
 
         # Compute prediction loss
-        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
+        predictionLoss = self.computePredictionLoss(
+            classTargets, classPredictions)
 
         # Compute complete loss
         loss = (
@@ -364,7 +376,8 @@ class LightningAutoencoder(L.LightningModule):
         f1 = self.computeF1Score(classTargets, classPredictions)
 
         # Logging
-        self.log("val_reconstruction_loss_timeSeries", reconstructionLossTimeSeries)
+        self.log("val_reconstruction_loss_timeSeries",
+                 reconstructionLossTimeSeries)
         self.log(
             "val_reconstruction_loss_globalFeatures", reconstructionLossGlobalFeatures
         )
