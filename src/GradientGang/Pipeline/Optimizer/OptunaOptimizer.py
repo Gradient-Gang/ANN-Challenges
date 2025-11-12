@@ -37,17 +37,17 @@ class OptunaOptimizer:
         self.constr_map = {}
 
         # setup hyperparameters
-        self.hyperparams_data, self.constr_data = self.load_hyperparameters(
+        self.hyperparams_dataloader, self.constr_dataloader = self.load_hyperparameters(
             dict_config["hyper_dataloader"],
             dict_config["constr_dataloader"]
         )
         self.hyperparams_arch, self.constr_arch = self.load_hyperparameters(
-            dict_config["hyper_arch"],
-            dict_config["constr_arch"]
+            dict_config["hyper_architecture"],
+            dict_config["constr_architecture"]
         )
 
         # setup structure
-        self.architecture = dict_config["arch"]
+        self.architecture = dict_config["architecture"]
 
         # setup pipeline
         self.pipeline = Pipeline(dict_config["dataloader"])
@@ -58,14 +58,14 @@ class OptunaOptimizer:
 
         # build all hyperparameters (computes also nested ones in the HyperParameter constructor)
         for h in list_hyperparams:
-            hp[h] = HyperParameter(list_hyperparams[h], constr)
+            hp[h["name"]] = HyperParameter(h, constr)
         
         # assigns all constraints
         for c in constraints:
-            constr[constraints[c]["name"]] = HyperParameterConstraint(self.constr_map[constraints[c]["function"]])
+            constr[c["name"]] = HyperParameterConstraint(self.constr_map[c["function"]])
 
-            for h in constraints[c]["hyperparams"]:
-                constr[-1].params.append(hp[h])
+            for h in c["hyperparams"]:
+                constr[c["name"]].params.append(hp[h])
 
         return (hp, constr)
     
@@ -92,15 +92,15 @@ class OptunaOptimizer:
         return study
 
     def objective(self, trial: optuna.trial.BaseTrial):
-        dict_data = self.build({}, self.hyperparams_data, trial)
+        dict_data = self.build({}, self.hyperparams_dataloader, trial)
         dict_arch = self.build(self.architecture, self.hyperparams_arch, trial)
 
         return self.pipeline.fit_and_validate(dict_arch, dict_data)
 
-    def build(self, skeleton: dict, hyperparams: list, trial: optuna.trial.BaseTrial):
+    def build(self, skeleton: dict, hyperparams: dict, trial: optuna.trial.BaseTrial):
         arch = skeleton.copy()
 
-        for h in hyperparams:
+        for h in hyperparams.values():
             curr = arch
             for k in h.path[:-1]:
                 curr = curr[k]
