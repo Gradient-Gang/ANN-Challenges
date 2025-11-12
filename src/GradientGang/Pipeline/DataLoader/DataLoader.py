@@ -145,6 +145,15 @@ class TimeSeriesAndGlobalDataset(Dataset):
         self.global_data = global_data
         self.labels = labels
 
+        # Store dataset Information for quick access
+        self.timeSeriesShape = (
+            time_series_data.shape[1:] if time_series_data is not None else None
+        )
+        self.globalFeaturesShape = global_data.shape[1:]
+        self.numClasses = (
+            (labels.max().item() + 1) if labels is not None and len(labels) > 0 else 0
+        )
+
     def __len__(self):
         # Return the number of samples in the dataset
         return self.global_data.shape[0]
@@ -341,3 +350,27 @@ class DataModule(L.LightningDataModule):
         """
         # Return the DataLoader for prediction dataset (which is the test dataset)
         return self.test_dataloader()
+
+    def getDatasetInfo(self) -> dict:
+        """
+        Get information about the dataset, including input shapes and number of classes.
+        Returns:
+            dict: Dictionary containing dataset information.
+        """
+
+        # Ensure datasets are initialized
+        if self.train_dataset is None:
+            raise RuntimeError("Datasets not initialized. Call setup() first.")
+
+        # Get dataset information from the training dataset
+        sample_dataset: TimeSeriesAndGlobalDataset = (
+            self.train_dataset.datasets[0]
+            if isinstance(self.train_dataset, ConcatDataset)
+            else self.train_dataset
+        )  # type: ignore
+
+        return {
+            "timeSeriesShape": sample_dataset.timeSeriesShape,
+            "globalFeaturesShape": sample_dataset.globalFeaturesShape,
+            "numClasses": sample_dataset.numClasses,
+        }
