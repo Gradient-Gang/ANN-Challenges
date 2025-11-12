@@ -18,6 +18,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
         globalColumns: list[str] = [],
         timeSeriesColumns: list[str] | None = None,
         labelMapping: list[str] = ["no_pain", "low_pain", "high_pain"],
+        globalFeaturesPath: str | None = None,
     ) -> "TimeSeriesAndGlobalDataset":
         """
         Create a TimeSeriesAndGlobalDataset from CSV files.
@@ -28,34 +29,61 @@ class TimeSeriesAndGlobalDataset(Dataset):
             globalColumns (list[str]): List of column names for global features.
             timeSeriesColumns (list[str] | None): List of column names for time series features
             labelMapping (list[str]): List of possible labels for mapping string labels to integers.
+            globalFeaturesPath (str | None): Path to CSV file containing pre-extracted global features (e.g., from PreProcessor)
         Returns:
             TimeSeriesAndGlobalDataset: The constructed dataset.
         """
 
         # Load data from CSV and check for required columns
         data_df = pd.read_csv(dataPath)
-        globalColumns = data_df.columns.intersection(globalColumns).tolist()
-
-        globalFeatures = (
-            data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
-        )
-        globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+        
+        # Flag to track if global features were loaded from separate file
+        global_features_loaded_separately = False
+        
+        # If separate global features file is provided, load and merge it
+        if globalFeaturesPath is not None:
+            try:
+                global_features_df = pd.read_csv(globalFeaturesPath)
+                # Extract sample indices in order from time series data
+                sample_ids = data_df[primaryKeyColumn].unique()
+                # Reindex global features to match time series sample order
+                global_features_df = global_features_df.set_index(primaryKeyColumn).reindex(sample_ids).reset_index()
+                # All columns except sample_index are global features
+                globalColumns = [col for col in global_features_df.columns if col != primaryKeyColumn]
+                globalFeatures = global_features_df[globalColumns].to_numpy()
+                globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+                global_features_loaded_separately = True
+            except Exception as e:
+                print(f"Warning: Could not load global features from {globalFeaturesPath}: {e}")
+                print("Falling back to extracting global features from time series data.")
+                globalColumns = data_df.columns.intersection(globalColumns).tolist()
+                globalFeatures = (
+                    data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
+                )
+                globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+        else:
+            # Extract global features from time series data (original behavior)
+            globalColumns = data_df.columns.intersection(globalColumns).tolist()
+            globalFeatures = (
+                data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
+            )
+            globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
 
         if timeSeriesColumns is None:
             timeSeriesColumns = data_df.columns.difference(
                 [primaryKeyColumn, "time"] + globalColumns
             ).tolist()
 
-        # Normalize/validate globalColumns list
-        globalColumns = data_df.columns.intersection(globalColumns).tolist()
-
         # Build an ordered list of sample primary keys and features
         if "time" in data_df.columns:
             # Use groupby first to obtain one row per sample and capture the sample order
             grouped = data_df.groupby(primaryKeyColumn).first()
             sample_ids = grouped.index.to_numpy()
-            globalFeatures = grouped[globalColumns].to_numpy()
-            globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+            
+            # Only extract global features from time series if they weren't loaded separately
+            if not global_features_loaded_separately:
+                globalFeatures = grouped[globalColumns].to_numpy()
+                globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
 
             # Process time series data
             if timeSeriesColumns is None:
@@ -187,11 +215,6 @@ class DataModule(L.LightningDataModule):
             "batch_size": int,
             "num_workers": int,
             "data_dir": str,
-            "train_file_name": str,
-            "train_file_name_labels": str,
-            "test_file_name": str,
-            "batch_size": int,
-            "num_workers": int,
             "val_split": float,
         },
     )
@@ -221,6 +244,10 @@ class DataModule(L.LightningDataModule):
         )
         self.primaryKeyColumn = params.get("primaryKeyColumn", "sample_index")
         self.timeSeriesColumns = params.get("timeSeriesColumns", None)
+        
+        # Optional: Separate file for global features
+        self.train_global_features_file = params.get("train_global_features_file", None)
+        self.test_global_features_file = params.get("test_global_features_file", None)
 
         # Label mapping for converting string labels to integers
         # Default mapping for pirate pain dataset
@@ -238,6 +265,11 @@ class DataModule(L.LightningDataModule):
         # Load and split datasets based on the stage
         # if stage is "fit", load training and validation datasets
         if stage == "fit" or stage is None:
+            # Determine global features file path
+            train_global_path = None
+            if self.train_global_features_file:
+                train_global_path = os.path.join(self.data_dir, self.train_global_features_file)
+            
             # Load labeled training dataset and unlabeled test dataset separately
             labeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
@@ -246,6 +278,7 @@ class DataModule(L.LightningDataModule):
                 globalColumns=self.globalFeaturesColumns,
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
+                globalFeaturesPath=train_global_path,
             )
 
             self.updateDataInfo(labeled_dataset)
@@ -261,6 +294,11 @@ class DataModule(L.LightningDataModule):
             )
 
             if includeTestInTrain:
+                # Determine test global features file path
+                test_global_path = None
+                if self.test_global_features_file:
+                    test_global_path = os.path.join(self.data_dir, self.test_global_features_file)
+                
                 unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                     dataPath=os.path.join(self.data_dir, self.test_file_name),
                     labelsPath=None,
@@ -268,6 +306,7 @@ class DataModule(L.LightningDataModule):
                     globalColumns=self.globalFeaturesColumns,
                     primaryKeyColumn=self.primaryKeyColumn,
                     timeSeriesColumns=self.timeSeriesColumns,
+                    globalFeaturesPath=test_global_path,
                 )
 
                 # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
@@ -278,6 +317,11 @@ class DataModule(L.LightningDataModule):
                 self.train_dataset = self.train_labeled
 
         if stage == "test" or stage is None:
+            # Determine test global features file path
+            test_global_path = None
+            if self.test_global_features_file:
+                test_global_path = os.path.join(self.data_dir, self.test_global_features_file)
+            
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
@@ -285,6 +329,7 @@ class DataModule(L.LightningDataModule):
                 globalColumns=self.globalFeaturesColumns,
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
+                globalFeaturesPath=test_global_path,
             )
 
     def updateDataInfo(self, dataset: TimeSeriesAndGlobalDataset) -> dict:
