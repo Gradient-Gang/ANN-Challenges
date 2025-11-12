@@ -1,6 +1,7 @@
 import pytorch_lightning as L
 import torch
 import yaml
+from typing import Optional, Tuple
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Encoder import Encoder
 from .Decoder import Decoder
@@ -13,9 +14,7 @@ class LightningAutoencoder(L.LightningModule):
     # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={
-            "ClassWeightsPath": str
-        },
+        interpretation={"ClassWeightsPath": str},
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -53,8 +52,7 @@ class LightningAutoencoder(L.LightningModule):
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
 
-        self.reconstruction_loss_weight = params.get(
-            "ReconstructionLossWeight", 0.5)
+        self.reconstruction_loss_weight = params.get("ReconstructionLossWeight", 0.5)
         assert (
             0 <= self.reconstruction_loss_weight <= 1.0
         ), "ReconstructionLossWeight must be between 0 and 1."
@@ -64,7 +62,7 @@ class LightningAutoencoder(L.LightningModule):
 
         if class_weights_path:
             try:
-                with open(class_weights_path, 'r') as f:
+                with open(class_weights_path, "r") as f:
                     class_weights_dict = yaml.safe_load(f)
                 # Convert dict to tensor ordered by class indices (0, 1, 2, ...)
                 # Assumes class labels are integers 0 to output_dim-1
@@ -73,16 +71,18 @@ class LightningAutoencoder(L.LightningModule):
                 for i in range(output_dim):
                     class_weights_list.append(class_weights_dict[i])
                 class_weights_tensor = torch.tensor(
-                    class_weights_list, dtype=torch.float32)
+                    class_weights_list, dtype=torch.float32
+                )
                 # Register as buffer so it moves with the model to the correct device
-                self.register_buffer('class_weights', class_weights_tensor)
+                self.register_buffer("class_weights", class_weights_tensor)
             except Exception as e:
                 print(
-                    f"Error: Could not load class weights from {class_weights_path}. Error: {e}")
+                    f"Error: Could not load class weights from {class_weights_path}. Error: {e}"
+                )
         else:
             # No path provided, use equal weights (all ones)
             class_weights_tensor = torch.ones(output_dim, dtype=torch.float32)
-            self.register_buffer('class_weights', class_weights_tensor)
+            self.register_buffer("class_weights", class_weights_tensor)
 
         # Extract additional parameters if provided, with defaults
         num_input_channels = params.get("num_input_channels", 1)
@@ -118,7 +118,15 @@ class LightningAutoencoder(L.LightningModule):
         # Initialize F1Score metric as instance variable
         self.val_f1 = F1Score(task="multiclass", num_classes=output_dim)
 
-    def forward(self, x):
+        # Initialize loss functions
+        self.reconstructionLossFunction = torch.nn.MSELoss()
+
+        weight_tensor: Optional[torch.Tensor] = (
+            self.class_weights if isinstance(self.class_weights, torch.Tensor) else None
+        )
+        self.predictionLossFunction = torch.nn.CrossEntropyLoss(weight=weight_tensor)
+
+    def forward(self, x) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Forward pass for Lightning Autoencoder architecture.
         Args:
@@ -132,8 +140,7 @@ class LightningAutoencoder(L.LightningModule):
         globalFeatures = x[1]
         # timeSeries shape: (batch, features, seq_len) = (batch, 34, 160)
         # We need seq_len which is shape[2]
-        original_seq_len = timeSeries.shape[2] if len(
-            timeSeries.shape) == 3 else None
+        original_seq_len = timeSeries.shape[2] if len(timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
@@ -164,12 +171,99 @@ class LightningAutoencoder(L.LightningModule):
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.2, patience=patience, min_lr=5e-5
+            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
         )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_F1"},
+            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"},
         }
+
+    def computeReconstructionLoss(
+        self,
+        timeSeriesTrue: torch.Tensor,
+        globalFeaturesTrue: torch.Tensor,
+        timeSeriesReconstructed: torch.Tensor,
+        globalFeaturesReconstructed: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Computes both the time series and global reconstruction loss
+
+        Args:
+            timeSeriesTrue (torch.Tensor): The target time series data
+            globalFeaturesTrue (torch.Tensor): The target global features
+            timeSeriesReconstructed (torch.Tensor): The reconstructed time series
+            globalFeaturesReconstructed (torch.Tensor): The reconstructed global features
+
+        Returns:
+            _type_: _description_
+        """
+        # Time Series
+        timeSeries_flat = timeSeriesTrue.reshape(timeSeriesTrue.size(0), -1)
+        timeSeriesReconstructed_flat = timeSeriesReconstructed.reshape(
+            timeSeriesReconstructed.size(0), -1
+        )
+        reconstruction_loss_timeSeries: torch.Tensor = self.reconstructionLossFunction(
+            timeSeriesReconstructed_flat,
+            timeSeries_flat,
+        )
+
+        # Global Features
+        globalFeatures_flat = globalFeaturesTrue.reshape(globalFeaturesTrue.size(0), -1)
+        globalFeaturesReconstructed_flat = globalFeaturesReconstructed.reshape(
+            globalFeaturesReconstructed.size(0), -1
+        )
+        reconstruction_loss_globalFeatures: torch.Tensor = (
+            self.reconstructionLossFunction(
+                globalFeaturesReconstructed_flat, globalFeatures_flat
+            )
+        )
+
+        return reconstruction_loss_timeSeries, reconstruction_loss_globalFeatures
+
+    def computePredictionLoss(
+        self, classTargets: torch.Tensor, classPredictions: torch.Tensor
+    ) -> torch.Tensor:
+        """Computes the prediction loss
+
+        Args:
+            classTargets (torch.Tensor): the class targets
+            classPredictions (torch.Tensor): the class predictions
+
+        Returns:
+            torch.Tensor: Th
+        """
+        labeled_mask = classTargets >= 0
+        if labeled_mask.any():
+            availableTargets = classTargets[labeled_mask]
+            availablePredictionsLogits = classPredictions[labeled_mask]
+            prediction_loss = self.predictionLossFunction(
+                availablePredictionsLogits, availableTargets
+            )
+        else:
+            prediction_loss = torch.tensor(0.0, device=self.device)
+
+        return prediction_loss
+
+    def computeF1Score(
+        self, classTargets: torch.Tensor, classPredictions: torch.Tensor
+    ) -> float:
+        """Computes the F1 score
+
+        Args:
+            classTargets (torch.Tensor): the class targets
+            classPredictions (torch.Tensor): the class predictions
+
+        Returns:
+            float: Computed F1 score
+        """
+
+        labeled_mask = classTargets >= 0
+        f1 = 0.0
+        if labeled_mask.any():
+            availableTargets = classTargets[labeled_mask]
+            availablePredictionsLogits = classPredictions[labeled_mask]
+            availablePredictions = torch.argmax(availablePredictionsLogits, dim=1)
+            f1 = self.val_f1(availablePredictions, availableTargets)
+        return f1
 
     def training_step(self, batch, batch_idx):
         """
@@ -180,60 +274,50 @@ class LightningAutoencoder(L.LightningModule):
         Returns:
             torch.Tensor: Computed loss for the batch.
         """
+        # Decode inputs
+        inputData, classTargets = batch
+        timeSeries, globalFeatures = inputData
 
-        x, y = batch
-        predictions, (decoded, decoded_globalFeatures) = self.forward(x)
-        timeSeries = x[0]
-        globalFeatures = x[1]
+        # Compute predictions
+        classPredictions, (reconstructedTimeSeries, reconstructedGlobalFeatures) = (
+            self.forward(inputData)
+        )
+
         # Compute reconstruction loss
-        loss_fn_reconstruction = torch.nn.MSELoss()
-        device = (
-            timeSeries.device if (
-                timeSeries is not None) else torch.device(self.device)
+        reconstructionLossTimeSeries, reconstructionLossGlobalFeatures = (
+            self.computeReconstructionLoss(
+                timeSeries,
+                globalFeatures,
+                reconstructedTimeSeries,
+                reconstructedGlobalFeatures,
+            )
         )
-        if timeSeries is not None:
-            timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
-            decoded_flat = decoded.reshape(decoded.size(0), -1)
-            reconstruction_loss_timeSeries = loss_fn_reconstruction(
-                decoded_flat, timeSeries_flat
-            )
-        else:
-            reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
-
-        if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.reshape(
-                globalFeatures.size(0), -1)
-            decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
-                decoded_globalFeatures.size(0), -1
-            )
-            reconstruction_loss_globalFeatures = loss_fn_reconstruction(
-                decoded_globalFeatures_flat, globalFeatures_flat
-            )
-        else:
-            reconstruction_loss_globalFeatures = torch.tensor(
-                0.0, device=device)
-
-        reconstruction_loss = (
-            reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
+        reconstructionLoss = (
+            reconstructionLossTimeSeries + reconstructionLossGlobalFeatures
         )
 
-        # Compute prediction loss only for labeled samples (labels are int indices; -1 means unlabeled)
-        labeled_mask = y >= 0
-        if labeled_mask.any():
-            targets = y[labeled_mask].to(device)
-            preds = predictions[labeled_mask]
-            # Use the class weights loaded from YAML file (or None for uniform weighting)
-            loss_fn_prediction = torch.nn.CrossEntropyLoss(
-                weight=self.class_weights)
-            prediction_loss = loss_fn_prediction(preds, targets)
-        else:
-            prediction_loss = torch.tensor(0.0, device=device)
+        # Compute prediction loss
+        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
 
+        # Compute complete loss
         loss = (
-            self.reconstruction_loss_weight * reconstruction_loss
-            + (1 - self.reconstruction_loss_weight) * prediction_loss
+            self.reconstruction_loss_weight * reconstructionLoss
+            + (1 - self.reconstruction_loss_weight) * predictionLoss
         )
+
+        # Compute F1 score
+        f1 = self.computeF1Score(classTargets, classPredictions)
+
+        # Logging
+        self.log("train_reconstruction_loss_timeSeries", reconstructionLossTimeSeries)
+        self.log(
+            "train_reconstruction_loss_globalFeatures", reconstructionLossGlobalFeatures
+        )
+        self.log("train_reconstruction_loss", reconstructionLoss)
+        self.log("train_prediction_loss", predictionLoss)
         self.log("train_loss", loss)
+        self.log("train_F1", f1, prog_bar=True)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -245,58 +329,51 @@ class LightningAutoencoder(L.LightningModule):
         Returns:
             float: Computed F1 score for the batch.
         """
+        # Decode inputs
+        inputData, classTargets = batch
+        timeSeries, globalFeatures = inputData
 
-        x, y = batch
-        predictions, (decoded, decoded_globalFeatures) = self.forward(x)
-        timeSeries = x[0]
-        globalFeatures = x[1]
-        # Compute reconstruction loss for logging
-        loss_fn_reconstruction = torch.nn.MSELoss()
-        device = (
-            timeSeries.device if (
-                timeSeries is not None) else torch.device(self.device)
+        # Compute predictions
+        classPredictions, (reconstructedTimeSeries, reconstructedGlobalFeatures) = (
+            self.forward(inputData)
         )
 
-        if timeSeries is not None:
-            timeSeries_flat = timeSeries.reshape(timeSeries.size(0), -1)
-            decoded_flat = decoded.reshape(decoded.size(0), -1)
-            reconstruction_loss_timeSeries = loss_fn_reconstruction(
-                decoded_flat, timeSeries_flat
+        # Compute reconstruction loss
+        reconstructionLossTimeSeries, reconstructionLossGlobalFeatures = (
+            self.computeReconstructionLoss(
+                timeSeries,
+                globalFeatures,
+                reconstructedTimeSeries,
+                reconstructedGlobalFeatures,
             )
-        else:
-            reconstruction_loss_timeSeries = torch.tensor(0.0, device=device)
-
-        if globalFeatures is not None:
-            globalFeatures_flat = globalFeatures.reshape(
-                globalFeatures.size(0), -1)
-            decoded_globalFeatures_flat = decoded_globalFeatures.reshape(
-                decoded_globalFeatures.size(0), -1
-            )
-            reconstruction_loss_globalFeatures = loss_fn_reconstruction(
-                decoded_globalFeatures_flat, globalFeatures_flat
-            )
-        else:
-            reconstruction_loss_globalFeatures = torch.tensor(
-                0.0, device=device)
-
-        reconstruction_loss = (
-            reconstruction_loss_timeSeries + reconstruction_loss_globalFeatures
         )
-        self.log("val_reconstruction_loss", reconstruction_loss, prog_bar=True)
+        reconstructionLoss = (
+            reconstructionLossTimeSeries + reconstructionLossGlobalFeatures
+        )
 
-        # Only evaluate prediction metrics on labeled samples
-        labeled_mask = y >= 0
-        if labeled_mask.any():
-            preds_labels = predictions[labeled_mask].argmax(dim=1)
-            targets = y[labeled_mask].to(device)
-            # Update the F1 metric with predictions and targets
-            self.val_f1.update(preds_labels, targets)
-            f1_score = self.val_f1.compute()
-            self.log("val_F1", f1_score, prog_bar=True)
-            return f1_score
-        else:
-            # No labeled samples in this batch
-            return None
+        # Compute prediction loss
+        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
+
+        # Compute complete loss
+        loss = (
+            self.reconstruction_loss_weight * reconstructionLoss
+            + (1 - self.reconstruction_loss_weight) * predictionLoss
+        )
+
+        # f1 F1 score
+        f1 = self.computeF1Score(classTargets, classPredictions)
+
+        # Logging
+        self.log("val_reconstruction_loss_timeSeries", reconstructionLossTimeSeries)
+        self.log(
+            "val_reconstruction_loss_globalFeatures", reconstructionLossGlobalFeatures
+        )
+        self.log("val_reconstruction_loss", reconstructionLoss)
+        self.log("val_prediction_loss", predictionLoss)
+        self.log("val_loss", loss)
+        self.log("val_F1", f1, prog_bar=True)
+
+        return loss
 
     def on_validation_epoch_end(self):
         """
