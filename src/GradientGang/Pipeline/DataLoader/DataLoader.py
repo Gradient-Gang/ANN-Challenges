@@ -248,6 +248,8 @@ class DataModule(L.LightningDataModule):
                 timeSeriesColumns=self.timeSeriesColumns,
             )
 
+            self.updateDataInfo(labeled_dataset)
+
             # Split labeled dataset into train/val (do not mix unlabeled test into this split)
             val_size = int(len(labeled_dataset) * self.val_split)
             train_size = len(labeled_dataset) - val_size
@@ -284,6 +286,13 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
             )
+
+    def updateDataInfo(self, dataset: TimeSeriesAndGlobalDataset) -> dict:
+        self.dataInfo = {
+            "timeSeriesShape": dataset.timeSeriesShape,
+            "globalFeaturesShape": dataset.globalFeaturesShape,
+            "numClasses": dataset.numClasses,
+        }
 
     def train_dataloader(self):
         """
@@ -358,19 +367,4 @@ class DataModule(L.LightningDataModule):
             dict: Dictionary containing dataset information.
         """
 
-        # Ensure datasets are initialized
-        if self.train_dataset is None:
-            raise RuntimeError("Datasets not initialized. Call setup() first.")
-
-        # Get dataset information from the training dataset
-        sample_dataset: TimeSeriesAndGlobalDataset = (
-            self.train_dataset.datasets[0]
-            if isinstance(self.train_dataset, ConcatDataset)
-            else self.train_dataset
-        )  # type: ignore
-
-        return {
-            "timeSeriesShape": sample_dataset.timeSeriesShape,
-            "globalFeaturesShape": sample_dataset.globalFeaturesShape,
-            "numClasses": sample_dataset.numClasses,
-        }
+        return self.dataInfo
