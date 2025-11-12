@@ -13,7 +13,8 @@ class Direct(L.LightningModule):
     DirectInterpreter = ParameterInterpreter(
         name="DirectInterpreter",
         interpretation={
-            "ClassWeightsPath": str
+            "ClassWeightsPath": str,
+            "Validation": bool,
         },
         requiredParams={
             "EncoderParams": dict,
@@ -42,6 +43,8 @@ class Direct(L.LightningModule):
 
         # Store params for later use
         self.params = params
+
+        self.validation = params.get("Validation", True)
 
         encoder_params = params["EncoderParams"]
         global_ff_encoder_params = params["GlobalFFEncoderParams"]
@@ -148,11 +151,12 @@ class Direct(L.LightningModule):
         # Using a scheduler is optional but can be helpful.
         # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.2, patience=patience, min_lr=5e-5
+            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
         )
+        monitor = "val_loss" if self.validation else "train_loss"
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_F1"},
+            "lr_scheduler": {"scheduler": scheduler, "monitor": monitor},
         }
 
     def training_step(self, batch, batch_idx):
@@ -191,10 +195,17 @@ class Direct(L.LightningModule):
         """
         x, y = batch
         predictions = self.forward(x)
-
+        if y is not None:
+            # Define class weights - adjust these values based on your class distribution
+            loss_fn_prediction = torch.nn.CrossEntropyLoss(
+                weight=self.class_weights)
+            loss = loss_fn_prediction(predictions, y)
+        else:
+            loss = 0
         # Update the F1 metric with predictions and targets
         self.val_f1.update(predictions, y)
         f1_score = self.val_f1.compute()
+        self.log("val_loss", loss, prog_bar=True)
         self.log("val_F1", f1_score, prog_bar=True)
         return f1_score
 
