@@ -9,6 +9,7 @@ class HyperParameter:
             self.type = params["type"]
             self.opts = params["opts"]
             self.path = params["path"]
+            self.active = True  # Initialize active flag
 
             # creates internal hyperparameters and constraints for each sub-architecture 
             if self.type == "arch":
