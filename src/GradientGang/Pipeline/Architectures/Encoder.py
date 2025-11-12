@@ -15,6 +15,9 @@ class Encoder(nn.Module):
             "Conv2d": nn.Conv2d,
             "Linear": nn.Linear,
             "Conv1d": nn.Conv1d,
+            "MaxPool1d": nn.MaxPool1d,
+            "AvgPool1d": nn.AvgPool1d,
+            "AdaptiveAvgPool1d": nn.AdaptiveAvgPool1d,
             "Flatten": nn.Flatten,
             "ConvTranspose2d": nn.ConvTranspose2d,
             "LSTM": nn.LSTM,
@@ -64,6 +67,33 @@ class Encoder(nn.Module):
                         "padding_mode": str,
                         "device": str,
                         "dtype": str,
+                    },
+                },
+                {
+                    "name": "MaxPool1d",
+                    "params": {
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "dilation": int,
+                        "return_indices": bool,
+                        "ceil_mode": bool,
+                    },
+                },
+                {
+                    "name": "AvgPool1d",
+                    "params": {
+                        "kernel_size": int,
+                        "stride": int,
+                        "padding": int,
+                        "ceil_mode": bool,
+                        "count_include_pad": bool,
+                    },
+                },
+                {
+                    "name": "AdaptiveAvgPool1d",
+                    "params": {
+                        "output_size": int,
                     },
                 },
                 {
