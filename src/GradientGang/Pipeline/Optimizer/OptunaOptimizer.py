@@ -1,49 +1,77 @@
 import optuna
-import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-import types
-from . import Optimizer
 from ..Utils.ParameterInterpreter import ParameterInterpreter
+from ..Pipeline import Pipeline
+from .HyperParameter import HyperParameter, HyperParameterConstraint
 
-class OptunaOptimizer (Optimizer.Optimizer):
+"""
+Structure:
+- dataloader
+- hyper_dataloader
+    - HYPERPARAMETER_DATA
+- constr_dataloader
+    - CONSTR_DATA
+- arch
+- hyper_arch
+    - HYPERPARAMETER_DATA
+- constr_arch
+    - CONSTR_DATA
 
-    def getParams(
-        self, params: dict, trial: optuna.trial.BaseTrial
-    ):
-        """
-        Get the parameters for the current trial.
-        Args:
-            params (dict): The parameter configuration dictionary.
-            trial (optuna.trial.BaseTrial): The current Optuna trial.
-        Returns:
-            dict: The interpreted parameters for the trial.
-        """
+Definition of HYPERPARAMETER_DATA:
+- name
+- type one of {categ, float, int, arch}
+- opts
+    - categ {choices*: list}
+    - float {min*, max*, step, log} all data is float, log is bool
+    - int {min*, max*, step, log} all data is int, log is bool
+    - arch {names*: list, archs*: dict, min_layers*, max_layers*, constraint}
+- path
 
-        # Dictionary to hold the interpreted parameter values
-        vals = {}
+Definition of CONSTRAINTS:
+- hyperparams: list
+- function
+"""
 
-        # Mapping of parameter types to Optuna suggestion methods
-        interpretation = {
-            "categ": trial.suggest_categorical,
-            "float": trial.suggest_float,
-            "int": trial.suggest_int}
+class OptunaOptimizer:
+    # setup section
+    def __init__(self, dict_config):
+        self.constr_map = {}
+
+        # setup hyperparameters
+        self.hyperparams_data, self.constr_data = self.load_hyperparameters(
+            dict_config["hyper_dataloader"],
+            dict_config["constr_dataloader"]
+        )
+        self.hyperparams_arch, self.constr_arch = self.load_hyperparameters(
+            dict_config["hyper_arch"],
+            dict_config["constr_arch"]
+        )
+
+        # setup structure
+        self.architecture = dict_config["arch"]
+
+        # setup pipeline
+        self.pipeline = Pipeline(dict_config["dataloader"])
+
+    def load_hyperparameters(self, list_hyperparams: list, constraints: list):
+        hp = {}
+        constr = {}
+
+        # build all hyperparameters (computes also nested ones in the HyperParameter constructor)
+        for h in list_hyperparams:
+            hp[h] = HyperParameter(list_hyperparams[h], constr)
         
-        # Required parameters for each parameter type
-        required = {"type": str, "params": dict}
-        parameterInterpreter = ParameterInterpreter(interpretation, requiredParams=required)
+        # assigns all constraints
+        for c in constraints:
+            constr[constraints[c]["name"]] = HyperParameterConstraint(self.constr_map[constraints[c]["function"]])
 
-        # Interpret each parameter using the ParameterInterpreter
-        for k in params:
-            parameterInterpreter.checkRequiredParams(params[k])
+            for h in constraints[c]["hyperparams"]:
+                constr[-1].params.append(hp[h])
 
-            vals[k] = parameterInterpreter.interpret(params[k]["type"])(**params[k]["params"])
-
-        return vals
-
+        return (hp, constr)
+    
+    # objective section
     def optimize(
-        self, 
-        architecture_builder: types.FunctionType,
-        params: dict,
+        self,
         n_trials: int = None
     ) -> optuna.study:
         """
@@ -56,10 +84,6 @@ class OptunaOptimizer (Optimizer.Optimizer):
             optuna.study: The Optuna study object containing the optimization results.
         """
 
-        # Store the architecture builder and parameters for use in the objective function
-        self.build_architecture = architecture_builder
-        self.params = params
-
         # Create and run the Optuna study
         study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0))
         study.optimize(self.objective, n_trials=n_trials)
@@ -67,37 +91,22 @@ class OptunaOptimizer (Optimizer.Optimizer):
         # Return the completed study
         return study
 
-    def objective(
-        self, trial: optuna.trial.BaseTrial
-    ):
-        """
-        Objective function for the Optuna study.
+    def objective(self, trial: optuna.trial.BaseTrial):
+        dict_data = self.build({}, self.hyperparams_data, trial)
+        dict_arch = self.build(self.architecture, self.hyperparams_arch, trial)
 
-        Args:
-            trial (optuna.trial.BaseTrial): The current Optuna trial.
+        return self.pipeline.fit_and_validate(dict_arch, dict_data)
 
-        Returns:
-            float: The objective value to be minimized or maximized.
-        """
+    def build(self, skeleton: dict, hyperparams: list, trial: optuna.trial.BaseTrial):
+        arch = skeleton.copy()
 
-        # Get the parameters for the current trial
-        params = self.getParams(self.params, trial)
-
-        # Build the architecture with the current parameters
-        arch: L.LightningModule = self.build_architecture(params)
-
-        # Set up early stopping and model checkpointing
-        early_stopping = EarlyStopping(monitor="val_f1", patience=10, mode="max")
-        checkpoint_callback = ModelCheckpoint(monitor="val_f1", mode="max")
-
-        # Train the architecture
-        trainer: L.Trainer = L.Trainer(
-            callbacks=[checkpoint_callback, early_stopping],
-            max_epochs=100,
-            log_every_n_steps=1,
-            enable_progress_bar=False
-        )
-        trainer.fit(arch)
-
-        # Return the best model score from the checkpoint
-        return checkpoint_callback.best_model_score
+        for h in hyperparams:
+            curr = arch
+            for k in h.path[:-1]:
+                curr = curr[k]
+            if isinstance(curr, list):
+                curr[h.path[-1]:h.path[-1]] = h.getValue(trial)
+            else:
+                curr[h.path[-1]] = h.getValue(trial)
+        
+        return arch

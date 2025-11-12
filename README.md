@@ -80,33 +80,41 @@ ANN-Challenges/
 
 The system follows a modular design with clear separation of concerns:
 
+### PreProcessor Module
+Comprehensive data preprocessing pipeline for feature engineering, normalization, PCA dimensionality reduction, and data visualization. Handles time series transformations, class weight computation, and feature selection.
+
+📖 [PreProcessing Documentation](src/GradientGang/PreProcessing/README.md)
+
 ### Pipeline Module
-The central orchestration component that manages the complete machine learning workflow:
-- **Architecture Building**: Dynamically constructs models from configuration
-- **Data Management**: Handles train/validation/test splits and batching
-- **Optimization**: Integrates with Optuna for hyperparameter search
-- **Training**: Leverages PyTorch Lightning for efficient training loops
+Central orchestration component managing the complete machine learning workflow. Dynamically constructs models from configuration, handles data management, integrates hyperparameter optimization, and leverages PyTorch Lightning for efficient training.
 
-### Architecture Modules
-Flexible building blocks for neural network construction:
-- **Encoder**: Supports Conv1D/2D, LSTM, GRU, RNN, and Linear layers
-- **Decoder**: Transpose convolutions and recurrent layers for reconstruction
-- **FeedForward**: Configurable fully connected networks with normalization
-- **LightningAutoencoder**: Complete autoencoder with joint/split latent spaces
-- **Direct**: Direct classification without reconstruction overhead
+📖 [Pipeline Documentation](src/GradientGang/Pipeline/README.md)
 
-### Data Pipeline
-Multimodal data processing for time series and tabular features:
-- **TimeSeriesAndGlobalDataset**: PyTorch Dataset for combined modalities
-- **DataModule**: Lightning DataModule with automatic train/val splits
-- **PreProcessor**: Comprehensive preprocessing with PCA and feature selection
+#### Architecture Module
+Flexible building blocks for neural network construction including Encoders (Conv1D/2D, LSTM, GRU, RNN), Decoders (transpose convolutions, recurrent layers), FeedForward networks, LightningAutoencoder (joint/split latent spaces), and Direct classification models.
 
-### Optimization
-Automated hyperparameter tuning with Optuna:
-- **TPE Sampler**: Efficient Bayesian optimization
-- **Early Stopping**: Prevents overfitting during optimization
-- **Model Checkpointing**: Saves best models automatically
-- **Reproducible**: Fixed seeds for deterministic results
+📖 [Architectures Documentation](src/GradientGang/Pipeline/Architectures/README.md)
+
+#### DataLoader Module
+Multimodal data processing for time series and tabular features. Implements PyTorch Dataset for combined modalities and Lightning DataModule with automatic train/validation splits, batching, and efficient data loading.
+
+📖 [DataLoader Documentation](src/GradientGang/Pipeline/DataLoader/README.md)
+
+#### Optimizer Module
+Automated hyperparameter tuning using Optuna with TPE sampler for efficient Bayesian optimization. Features early stopping, model checkpointing, and reproducible results with fixed seeds.
+
+📖 [Optimizer Documentation](src/GradientGang/Pipeline/Optimizer/README.md)
+
+#### Submission Module
+Automated CSV generation for competition submissions. Maps model predictions to labels, handles batch processing, and creates properly formatted submission files for Kaggle-style competitions.
+
+📖 [SubmissionGenerator Documentation](src/GradientGang/Pipeline/SubmissionGenerator/README.md)
+
+#### Utils Module
+Parameter validation and interpretation utilities. Ensures configuration correctness, validates required parameters, and provides mapping between architecture types and their implementations.
+
+📖 [Utils Documentation](src/GradientGang/Pipeline/Utils/README.md)
+
 
 ---
 
@@ -129,6 +137,28 @@ poetry shell
 pip install -e .
 ```
 
+---
+
+## 🧪 Testing
+
+[![Tests](https://img.shields.io/badge/Tests-293%20passed-brightgreen.svg)](tests/)
+[![Coverage](https://img.shields.io/badge/Coverage-90%25-brightgreen.svg)](tests/)
+
+The project includes a comprehensive test suite with **293 tests** achieving **90% code coverage**.
+
+### Run Tests
+
+```bash
+# Run all tests
+poetry run pytest tests/
+
+# Run with coverage report
+poetry run pytest --cov=src --cov-report=term-missing tests/
+```
+
+For detailed test documentation, see [tests/README.md](tests/README.md).
+
+---
 
 ## 📚 Documentation
 

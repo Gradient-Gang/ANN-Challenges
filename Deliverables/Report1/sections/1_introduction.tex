@@ -1,10 +1,26 @@
 \section{Introduction}
-    In this section, you should present your project's context and objectives. You might want to:
-    \begin{itemize}
-        \item Define the problem (\textit{you may use italics to highlight definitions})
-        \item State your goals (\textbf{emphasise key points with bold})
-        \item Outline your approach
-    \end{itemize}
 
+This project addresses the \textbf{first challenge} of the Artificial Neural Networks and Deep Learning course (A.Y. 2025-2026), which focuses on \textbf{multivariate time series classification}. The task involves classifying pain levels from different sensor-based signals, which is a critical problem in medical monitoring and patient care systems.
 
-\noindent For instance, you might write: ``This project focuses on \textit{image classification} using \textbf{deep learning} techniques."
+\subsection{Problem Definition}
+
+The dataset consists of \textit{multivariate time series} sequences, where for all samples we have 160 time steps and for each timestamp we have data from:
+\begin{itemize}
+    \item \textbf{4 surveys}: based on simple rule-based sensor aggregations estimating perceived pain;
+    \item \textbf{30 input channels}: data from sensors with continuous measurements of body joint angles (neck, elbow, knee, etc.);
+    \item \textbf{3 constant global features}: subject characteristics constant over time.
+\end{itemize}
+
+\noindent Each sequence must be assigned to one of three pain intensity classes: \textbf{No Pain (class 0)}, \textbf{Low Pain (class 1)}, or \textbf{High Pain (class 2)}.
+The challenge requires building neural networks \textbf{from scratch} without using pretrained models.
+
+\subsection{Objectives}
+
+Our primary goals are to:
+\begin{enumerate}
+    \item \textbf{Design robust neural architectures}: The network should be capable of capturing temporal dependencies and multivariate correlations in physiological time series data.
+    \item \textbf{Maximize F1-Score}: The accuracy of our model is computed using the F1-Score across all three pain classes.
+    \item \textbf{Compare multiple architectural approaches}: We need to explore different types of models such as FFNN, LSTM, GRU, or autoencoder-based methods to design a network that best approximates the underlying function.
+\end{enumerate}
+
+\subsection{Approach}

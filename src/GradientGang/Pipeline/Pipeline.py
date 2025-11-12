@@ -6,61 +6,29 @@ hyper.yaml
     ...
 """
 
-import lightning as L
-from .Optimizer.Optimizer import Optimizer
+import pytorch_lightning as L
 from .Architectures.LightningAutoencoder import LightningAutoencoder
 from .Architectures.Direct import Direct
 from .Utils.ParameterInterpreter import ParameterInterpreter
-import yaml
+from .DataLoader.DataLoader import DataModule
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 class Pipeline:
     def __init__(
         self, 
-        dataset: L.LightningDataModule, 
-        test: L.LightningDataModule, 
-        optimizer: Optimizer, 
-        dict_config: dict = None, 
-        path_config: str = None
+        dict_loader_config: dict
     ):
         
         """
         Initializes the Pipeline with dataset, test data, optimizer, and configuration.
         Args:
-            dataset (L.LightningDataModule): The training/validation dataset.
-            test (L.LightningDataModule): The test dataset.
-            optimizer (Optimizer): The optimizer to use for training.
-            dict_config (dict, optional): Configuration dictionary. Defaults to None.
-            path_config (str, optional): Path to configuration file. Defaults to None.
-        Raises:
-            ValueError: If both or neither of dict_config and path_config are provided.
+            dict_config (dict, optional): Configuration dictionary.
         """
 
-        # Validate inputs
-        if dict_config == path_config == None or (dict_config != None and path_config != None):
-            raise ValueError("dict_config or path_config have to be assigned")
-        elif not(isinstance(dataset, L.LightningDataModule) and isinstance(test, L.LightningDataModule)):
-            raise ValueError("dataset and test must be L.LightningDataModule")
-        elif dict_config is not None and not isinstance(dict_config, dict):
-            raise ValueError("dict_config must be a dictionary")
-        elif path_config is not None and not isinstance(path_config, str):
-            raise ValueError("path_config must be a string")
-
-        # Assign attributes
-        self.dataset: L.LightningDataModule = dataset
-        self.test: L.LightningDataModule = test
-        self.optimizer: Optimizer = optimizer
-
         # Load configuration
-        if dict_config is not None:
-            self.config = dict_config
-        elif path_config is not None:
-            with open(path_config, "r") as f:
-                self.config = yaml.safe_load(f)
+        self.data_loader = DataModule(dict_loader_config)
 
-    def build_architecture(
-        self, params: dict
-    ) -> L.LightningModule:
-        
+    def build_architecture(self, params) -> L.LightningModule:
         # Define architecture interpretation mapping
         interpretation = {
             "autoencoder_joint": LightningAutoencoder, 
@@ -79,11 +47,21 @@ class Pipeline:
         
         # Instantiate the architecture with the given parameters
         return arch(params)
-        
-    def optimize(self):
-        """
-        Optimize the architecture using the provided optimizer and configuration.
-        Returns:
-            L.LightningModule: The optimized architecture.
-        """
-        return self.optimizer.optimize(self.build_architecture, self.config)
+    
+    # TODO: CV can be added here
+    def fit_and_validate(self, dict_arch, dict_data):
+        # callbacks setup
+        early_stopping = EarlyStopping(monitor="val_F1", patience=10, mode="max")
+        checkpoint_callback = ModelCheckpoint(monitor="val_F1", mode="max")
+
+        # Build architecture
+        arch: L.LightningModule = self.build_architecture(dict_arch)
+
+        # Configure loader
+        self.data_loader.setup(**dict_data)
+
+        # Train the architecture
+        trainer: L.Trainer = L.Trainer(callbacks=[checkpoint_callback, early_stopping], max_epochs=5)
+        trainer.fit(arch, train_dataloaders=self.data_loader.train_dataloader(), val_dataloaders=self.data_loader.val_dataloader())
+
+        return checkpoint_callback.best_model_score

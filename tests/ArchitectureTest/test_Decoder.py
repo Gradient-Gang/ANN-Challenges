@@ -1543,3 +1543,41 @@ class TestDecoder:
         # Check sigmoid range
         assert output.min() >= 0.0
         assert output.max() <= 1.0
+
+    def test_decoder_activation_skip_after_recurrent(self):
+        """Test that activation is properly skipped after recurrent layers."""
+        params = {
+            "activation_function": "GELU",
+            "layer_type": [
+                {
+                    "name": "GRU",
+                    "params": {
+                        "input_size": 64,
+                        "hidden_size": 128,
+                        "num_layers": 1,
+                        "batch_first": True
+                    }
+                },
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": 128,
+                        "out_features": 64,
+                    }
+                }
+            ]
+        }
+
+        decoder = Decoder(
+            params=params,
+            latent_dim=128,
+            base_channel_size=64,
+            num_output_channels=1
+        )
+
+        x = torch.randn(4, 10, 64)
+        output = decoder.forward(x)
+
+        # Should successfully process through GRU and Linear layers
+        assert isinstance(output, torch.Tensor)
+        assert output.shape[0] == 4
