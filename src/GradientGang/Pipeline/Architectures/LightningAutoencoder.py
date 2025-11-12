@@ -14,7 +14,10 @@ class LightningAutoencoder(L.LightningModule):
     # Define the ParameterInterpreter for the LightningAutoencoder class
     LightningAutoencoderInterpreter = ParameterInterpreter(
         name="LightningAutoencoderInterpreter",
-        interpretation={"ClassWeightsPath": str},
+        interpretation={
+            "ClassWeightsPath": str,
+            "Validation": bool,
+        },
         requiredParams={
             "EncoderParams": dict,
             "GlobalFFEncoderParams": dict,
@@ -173,9 +176,10 @@ class LightningAutoencoder(L.LightningModule):
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
         )
+        monitor = "val_loss" if self.params.get("Validation", True) else "train_loss"
         return {
             "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"},
+            "lr_scheduler": {"scheduler": scheduler, "monitor": monitor},
         }
 
     def computeReconstructionLoss(
