@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import pytorch_lightning as L
 from typing import Union, Dict
+import os
 
 
 class SubmissionGenerator:
@@ -65,7 +66,8 @@ class SubmissionGenerator:
                     device = next(self.model.parameters()).device
                     # Handle tuple/list of tensors (e.g., Direct architecture)
                     if isinstance(features, (tuple, list)):
-                        features = tuple(f.to(device) if isinstance(f, torch.Tensor) else f for f in features)
+                        features = tuple(f.to(device) if isinstance(
+                            f, torch.Tensor) else f for f in features)
                     else:
                         features = features.to(device)
                 except StopIteration:
@@ -131,6 +133,7 @@ class SubmissionGenerator:
             'label': predicted_labels
         })
 
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         # Save to CSV
         submission_df.to_csv(output_path, index=False)
 
@@ -153,5 +156,3 @@ class SubmissionGenerator:
 
         #  generate submission file
         return self.create_submission_file(output_path)
-
-
