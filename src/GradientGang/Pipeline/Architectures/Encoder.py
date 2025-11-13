@@ -3,6 +3,92 @@ from ..Utils.ParameterInterpreter import ParameterInterpreter
 import torch
 
 
+class MultiScaleCNNBlock(nn.Module):
+    """
+    Multi-scale CNN block with parallel convolutional branches.
+    Each branch uses a different kernel size to capture patterns at different temporal scales.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        branch_channels: int,
+        kernel_sizes: list,
+        use_dilation: bool = False,
+        pooling_type: str = "max",
+        activation_fn: nn.Module = nn.ReLU,
+    ):
+        """
+        Args:
+            in_channels: Number of input channels
+            branch_channels: Number of output channels per branch
+            kernel_sizes: List of kernel sizes for parallel branches (e.g., [3, 5, 7])
+            use_dilation: If True, use dilation instead of larger kernels
+            pooling_type: Type of pooling after concatenation ("max", "avg", or "none")
+            activation_fn: Activation function to use after each conv
+        """
+        super().__init__()
+
+        self.branches = nn.ModuleList()
+
+        for i, k in enumerate(kernel_sizes):
+            # Calculate padding to maintain sequence length
+            if use_dilation:
+                # Use dilation: kernel=3 with dilation=k//2
+                dilation = max(1, k // 2)
+                kernel = 3
+                padding = dilation * (kernel - 1) // 2
+            else:
+                # Use larger kernels directly
+                dilation = 1
+                kernel = k
+                padding = k // 2
+
+            branch = nn.Sequential(
+                nn.Conv1d(
+                    in_channels=in_channels,
+                    out_channels=branch_channels,
+                    kernel_size=kernel,
+                    padding=padding,
+                    dilation=dilation,
+                    bias=False,
+                ),
+                nn.BatchNorm1d(branch_channels),
+                activation_fn(),
+            )
+            self.branches.append(branch)
+
+        # Total output channels = branch_channels * num_branches
+        self.out_channels = branch_channels * len(kernel_sizes)
+
+        # Optional pooling after concatenation
+        if pooling_type == "max":
+            self.pool = nn.MaxPool1d(kernel_size=2, stride=2)
+        elif pooling_type == "avg":
+            self.pool = nn.AvgPool1d(kernel_size=2, stride=2)
+        else:
+            self.pool = None
+
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch, in_channels, seq_len)
+        Returns:
+            Concatenated output from all branches (batch, out_channels, seq_len)
+        """
+        # Run each branch in parallel
+        branch_outputs = [branch(x) for branch in self.branches]
+
+        # Concatenate along channel dimension
+        out = torch.cat(branch_outputs, dim=1)
+
+        # Apply pooling if specified
+        if self.pool is not None:
+            out = self.pool(out)
+
+        return out
+
+
 class Encoder(nn.Module):
 
     # Define the ParameterInterpreter for the Encoder class
@@ -23,6 +109,7 @@ class Encoder(nn.Module):
             "LSTM": nn.LSTM,
             "GRU": nn.GRU,
             "RNN": nn.RNN,
+            "MultiScaleCNN": "MultiScaleCNN",  # Special marker for multi-scale blocks
         },
         requiredParams={
             "activation_function": ["ReLU", "GELU", "LeakyReLU"],
@@ -150,6 +237,16 @@ class Encoder(nn.Module):
                         "bidirectional": bool,
                     },
                 },
+                {
+                    "name": "MultiScaleCNN",
+                    "params": {
+                        "in_channels": int,
+                        "branch_channels": int,
+                        "kernel_sizes": list,
+                        "use_dilation": bool,
+                        "pooling_type": str,
+                    },
+                },
             ],
         },
     )
@@ -217,11 +314,21 @@ class Encoder(nn.Module):
         modules = []
         # Iterate through the layer_type list
         for layer_params in params["layer_type"]:
-            # create layer from params
-            layer_cls = self.encoderInterpreter.interpret(layer_params["name"])
-            modules.append(layer_cls(**layer_params.get("params", {})))
-            # Add the same activation function after each layer
-            modules.append(activation_fn_cls())
+            layer_name = layer_params["name"]
+
+            # Special handling for MultiScaleCNN
+            if layer_name == "MultiScaleCNN":
+                layer_config = layer_params.get("params", {})
+                # Pass the activation function to MultiScaleCNN
+                layer_config["activation_fn"] = activation_fn_cls
+                modules.append(MultiScaleCNNBlock(**layer_config))
+                # MultiScaleCNN already includes activation internally, don't add extra
+            else:
+                # Standard layer handling
+                layer_cls = self.encoderInterpreter.interpret(layer_name)
+                modules.append(layer_cls(**layer_params.get("params", {})))
+                # Add the same activation function after each layer
+                modules.append(activation_fn_cls())
 
         self.net = nn.Sequential(*modules)
 
