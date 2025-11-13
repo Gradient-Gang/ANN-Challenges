@@ -1,219 +1,94 @@
-#general modules
 import optuna
 import torch
-import numpy as np
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from torchmetrics import F1Score
-import matplotlib.pyplot as plt
-import numpy as np
-from collections import defaultdict
-import glob
-
-#os modules
 import warnings
 import dotenv
 import os
+import numpy as np
+
 warnings.filterwarnings('ignore')
 
 from GradientGang.Pipeline.DataLoader.DataLoader import DataModule
 from GradientGang.Pipeline.Architectures.Direct import Direct
 from GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAutoencoder
-from GradientGang.Pipeline.SubmissionGenerator.SubmissionGenerator import SubmissionGenerator
+from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
 
 
-class EnsembleModel(torch.nn.Module):
-    """Wrapper for ensemble of models compatible with SubmissionGenerator."""
-    
-    def __init__(self, models, model_types):
-        """
-        Args:
-            models: List of models
-            model_types: List of model types ('Direct' or 'Autoencoder') corresponding to each model
-        """
-        super().__init__()
-        self.models = torch.nn.ModuleList(models)
-        self.model_types = model_types
-        self.device = models[0].device if models else torch.device('cpu')
-    
-    def forward(self, x):
-        """Average predictions from all models."""
-        all_logits = []
-        
-        # Handle input format: could be tuple (timeSeries, globalFeats) or just features
-        if isinstance(x, tuple) and len(x) == 2:
-            timeSeries, globalFeats = x
-        else:
-            # Single input
-            timeSeries = x
-            globalFeats = None
-        
-        for i, model in enumerate(self.models):
-            model.eval()
-            with torch.no_grad():
-                # Call model based on its type
-                model_type = self.model_types[i]
-                
-                if model_type == "Direct":
-                    # Direct models expect: (timeSeries, globalFeats)
-                    output = model(timeSeries, globalFeats)
-                else:  # Autoencoder
-                    # Autoencoder models expect: ((timeSeries, globalFeats),)
-                    output = model((timeSeries, globalFeats))
-                
-                # Handle different output formats
-                if isinstance(output, tuple):
-                    logits = output[0]
-                else:
-                    logits = output
-                
-                all_logits.append(logits)
-        
-        # Average logits and return
-        ensemble_logits = torch.mean(torch.stack(all_logits), dim=0)
-        return ensemble_logits
-    
-    def eval(self):
-        """Set all models to eval mode."""
-        for model in self.models:
-            model.eval()
-        return self
+class FinalPipeline:    
 
-class FinalPipeline:
-
-    def __init__(self, params):
+    def __init__(self,params: dict):
         self.params = params
         self.storage = None
-        self.study_name = params.get('study_name', None)
-        self.study = None  # Store study as instance variable
-        if self.study_name is None:
-            raise ValueError("study_name must be provided in params")
+        self.dataloader  =None
+        self.study = None
 
-    # Load DB function
-    def load_DB(self, path):
-        # Load the optuna DB
-        dotenv.load_dotenv(dotenv_path=path)
+        #initialize project name
+        self.project_name = params.get("project_name", None)
+        if not self.project_name:
+            raise ValueError("Project name must be provided in parameters.")
+
+        #Initialize dataparams
+        self.data_params = params.get("data_params", None)
+        if not self.data_params:
+            raise ValueError("Data parameters must be provided in parameters.")
+
+        # Initialize database connection
+        self.database_path = params.get("database_path", None)
+        if not self.database_path:
+            raise ValueError("Database path must be provided in parameters.")
+        self.load_database()
+        print("✓ Database initialized successfully!")
+
+        # Initialize study
+        self.study_name = params.get("study_name", None)
+        if not self.study_name:
+            raise ValueError("Study name must be provided in parameters.")
+        self.create_study()
+        print("✓ Study initialized successfully!")
+        print("✓ FinalPipeline initialized successfully!")
+
+    def load_database(self):
+        dotenv.load_dotenv(dotenv_path=self.database_path)
         self.storage = os.getenv("DATABASE_URL")
+        print(f"Storage: {self.storage[:21]}..." if self.storage else "⚠️ No database URL found")
         print("✓ Database configuration loaded")
-        print(f"Storage: {self.storage[:50]}..." if self.storage else "⚠️ No database URL found")
-        return self.storage
+        pass
 
-    def info_DB(self):
-        # Check study status from database
-        if self.study is None:
-            print("⚠️ No study loaded. Call create_study() or load_study() first.")
-            return
-            
-        print(f"Study name: {self.study.study_name}")
-        print(f"Direction: {self.study.direction}")
-        print(f"Total trials: {len(self.study.trials)}")
-        print(f"Completed trials: {len([t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE])}")
-        print(f"Failed trials: {len([t for t in self.study.trials if t.state == optuna.trial.TrialState.FAIL])}")
-        print(f"Pruned trials: {len([t for t in self.study.trials if t.state == optuna.trial.TrialState.PRUNED])}")
-        print(f"Running trials: {len([t for t in self.study.trials if t.state == optuna.trial.TrialState.RUNNING])}")
-
-        if len(self.study.trials) > 0:
-            completed_trials = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-            if completed_trials:
-                print(f"\n✓ Best trial: {self.study.best_trial.number}")
-                print(f"✓ Best F1 score: {self.study.best_value:.4f}")
-                print(f"\nTop 5 trials:")
-                sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)[:5]
-                for i, trial in enumerate(sorted_trials, 1):
-                    arch = trial.params.get('MacroArchitecture', 'Unknown')
-                    enc = trial.params.get('architectureType', 'Unknown')
-                    print(f"  {i}. Trial {trial.number}: F1={trial.value:.4f} | {arch} | {enc}")
-            
-            print("\n📊 Trial states (last 10):")
-            for trial in self.study.trials[-10:]:
-                state_symbol = "✓" if trial.state == optuna.trial.TrialState.COMPLETE else "✗" if trial.state == optuna.trial.TrialState.FAIL else "⊗" if trial.state == optuna.trial.TrialState.PRUNED else "⟳"
-                value_str = f"F1={trial.value:.4f}" if trial.value is not None else "N/A"
-                print(f"  {state_symbol} Trial {trial.number}: {trial.state.name} | {value_str}")
-        else:
-            print("\n⚠️ No trials found in this study. Run optimization to start!")
-
-    # Create functions
-    def create_dataloader(self, data_params):
-        # Create the dataloader
-        dataLoader = DataModule(params=data_params)
-        dataLoader.setup(stage='fit', includeTestInTrain=True)
-
-        trainLoader = dataLoader.train_dataloader()
-        valLoader = dataLoader.val_dataloader()
-
-        print("Data loaders initialized successfully!")
-        print(f"Training batches: {len(trainLoader)}")
-        print(f"Validation batches: {len(valLoader)}")
-        
-        return dataLoader, trainLoader, valLoader
-
-    def create_study(self, storage=None, study_name=None):
-        # Use instance variables as defaults
-        if storage is None:
-            storage = self.storage
-        if study_name is None:
-            study_name = self.study_name
-            
+    def create_study(self):
         self.study = optuna.create_study(
-        direction='maximize',  # Maximize F1 score
-        sampler=optuna.samplers.TPESampler(seed=42),
-        pruner=optuna.pruners.MedianPruner(
-            n_startup_trials=5,
-            n_warmup_steps=5,
-            interval_steps=1
-        ),
-        study_name=study_name,
-        storage=storage,
-        load_if_exists=True  # Resume from existing study if available
+            direction='maximize',  # Maximize F1 score
+            sampler=optuna.samplers.TPESampler(seed=42),
+            pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=5,
+                n_warmup_steps=5,
+                interval_steps=1
+            ),
+            study_name = self.study_name,
+            storage = self.storage,
+            load_if_exists = True  # Resume from existing study if available
         )
 
         print("✓ Study created/loaded successfully!")
         print(f"Study name: {self.study.study_name}")
         print(f"Sampler: {self.study.sampler.__class__.__name__}")
         print(f"Pruner: {self.study.pruner.__class__.__name__}")
-        print(f"Storage: {'Database' if storage else 'In-memory'}")
+        print(f"Storage: {'Database' if self.storage else 'In-memory'}")
         print(f"Total trials: {len(self.study.trials)}")
-        if len(self.study.trials) > 0:
-            try:
-                print(f"Best trial so far: {self.study.best_trial.number}")
-                print(f"Best F1 score: {self.study.best_value:.4f}")
-            except Exception:
-                print("No best yet")
-        
-        return self
-    
-    def load_study(self, storage=None, study_name=None):
-        """Load an existing study from database."""
-        if storage is None:
-            storage = self.storage
-        if study_name is None:
-            study_name = self.study_name
-            
-        if not storage:
-            raise ValueError("No storage configured. Call load_DB() first.")
-            
-        self.study = optuna.load_study(
-            study_name=study_name,
-            storage=storage
-        )
-        
-        print(f"✓ Study loaded: {study_name}")
-        print(f"  • Total trials: {len(self.study.trials)}")
-        if len(self.study.trials) > 0:
-            try:
-                print(f"  • Best F1 score: {self.study.best_value:.4f}")
-                print(f"  • Best trial: {self.study.best_trial.number}")
-            except Exception:
-                print("  • No completed trials yet")
-        
-        return self
 
-    def print_study_summary(self):
-        if self.study is None:
-            print("⚠️ No study loaded. Call create_study() or load_study() first.")
-            return
-            
+    def optuna_optimize(self, n_trials: int = 500):
+        print(f"Starting optimization ...")
+        print("This may take a while depending on your hardware.")
+        print("-" * 60)
+
+        self.study.optimize(
+            self.objective_kfold, 
+            show_progress_bar=True, 
+            n_trials=n_trials
+        )
+
         print("\nOptimization completed!")
         print(f"Best trial: {self.study.best_trial.number}")
         print(f"Best F1 score: {self.study.best_value:.4f}")
@@ -221,46 +96,8 @@ class FinalPipeline:
         for key, value in self.study.best_params.items():
             print(f"  {key}: {value}")
 
-    #run
-    def run(self, data_params: dict, n_trials: int = 1):
-        """
-        Run optimization trials on the stored study (creates one if not exists).
-        
-        Args:
-            data_params: Dictionary containing data loading parameters
-            n_trials: Number of trials to run (default: 1)
-        
-        Returns:
-            self for method chaining
-        """
-        # Test objective function with trials
-        def objective_wrapper(trial):
-            return self.objective_kfold(trial, data_params)
-
-        # Create/load study if not exists
-        if self.study is None:
-            self.create_study()
-
-        print(f"Running {n_trials} trial(s)... (this may take a few minutes)")
-        print(f"Study: {self.study.study_name}")
-        
-        # Check if using database storage
-        has_storage = hasattr(self.study._storage, 'url') and self.study._storage.url
-        print(f"Storage: {'Database' if has_storage else 'In-memory'}")
-        print("=" * 60)
-        
-        self.study.optimize(objective_wrapper, n_trials=n_trials)
-        
-        print("\n" + "=" * 60)
-        print(f"✓ Trial(s) completed! Best F1 Score: {self.study.best_value:.4f}")
-        print(f"Total trials in study: {len(self.study.trials)}")
-        print("=" * 60)
-        
-        return self
-
-    ### setup functions
-    @staticmethod
-    def setUpEncoder(trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
+    ##setup function
+    def setUpEncoder(self, trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
         """Setup the encoder architecture - supports Recurrent, Conv1d, and MultiScaleCNN"""
         # First setup global feature encoder
         globalInputDim = datasetInfo["globalFeaturesShape"][0]
@@ -336,7 +173,7 @@ class FinalPipeline:
             # Conv1d architecture
             numConvLayers = trial.suggest_int("numConvLayers", 1, 3)
             kernelSize = trial.suggest_categorical("kernelSize", [3, 5, 7])
-            stride = trial.suggest_categorical("stride", [1, 2])
+            stride = trial.suggest_categorical("strideConv1D", [1, 2])
             activationFunction = trial.suggest_categorical("encoderActivation", ["ReLU", "LeakyReLU", "GELU"])
             
             # Start with input channels
@@ -454,8 +291,7 @@ class FinalPipeline:
         architectureParameters["EncoderParams"] = timeSeriesEncoderParams
         return architectureParameters
 
-    @staticmethod
-    def setUpFeedForwardHead(trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
+    def setUpFeedForwardHead(self, trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
         """Setup the feedforward head for classification"""
         globalEmbeddingDim = architectureParameters["GlobalFFEncoderParams"]["layer_type"][-1]["params"]["out_features"]
         
@@ -542,8 +378,7 @@ class FinalPipeline:
         architectureParameters["FeedForwardParams"] = feedForwardParams
         return architectureParameters
 
-    @staticmethod
-    def setUpDecoder(trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
+    def setUpDecoder(self, trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
         """Setup the decoder for autoencoder architecture (mirrors the encoder)"""
         encoderParams = architectureParameters["EncoderParams"]
         firstLayer = encoderParams["layer_type"][0]
@@ -829,8 +664,7 @@ class FinalPipeline:
         architectureParameters["GlobalFFDecoderParams"] = globalDecoderParams
         return architectureParameters
 
-    @staticmethod
-    def apply_he_initialization(model, activation_type="ReLU"):
+    def apply_he_initialization(self, model, activation_type="ReLU"):
         """
         Apply He (Kaiming) initialization to all Linear and Conv1d layers in the model.
         
@@ -883,14 +717,14 @@ class FinalPipeline:
                             n = param.data.size(0)
                             param.data[n//4:n//2].fill_(1.0)  # Forget gate bias
 
-    def objective_kfold(self, trial: optuna.trial.Trial, data_params: dict) -> float:
+    def objective_kfold(self, trial: optuna.trial.Trial) -> float:
         """
         K-Fold Cross-Validation objective function for Optuna optimization.
         Returns mean validation F1 score across all folds.
         
         Args:
             trial: Optuna trial object
-            data_params: Dictionary containing data loading parameters
+            n_folds: Number of folds for cross-validation (default: 5)
         
         Returns:
             Mean validation F1 score across all folds
@@ -905,7 +739,7 @@ class FinalPipeline:
         if use_windowing:
             window_size = trial.suggest_int("window_size", 10, 160)
 
-            stride = trial.suggest_int("stride", 0, window_size)
+            stride = trial.suggest_int("windowStride", 0, window_size)
             # Ensure stride doesn't exceed window_size
             if stride > window_size:
                 stride = window_size
@@ -917,7 +751,7 @@ class FinalPipeline:
         includeTestInTrain = macroArchitecture == "Autoencoder"
         
         # Create K-Fold data loader with windowing
-        kfold_data_params = data_params.copy()
+        kfold_data_params = self.data_params.copy()
         kfold_data_params['use_windowing'] = use_windowing
         kfold_data_params['window_size'] = window_size
         kfold_data_params['stride'] = stride
@@ -1047,346 +881,3 @@ class FinalPipeline:
         
         # Return mean F1 across folds
         return mean_f1
-
-    #evaluate the ensemble performance of top-k models
-    def evaluate_topk_ensemble(self, dataLoader, max_k=20):
-        """
-        Evaluate ensemble performance for different values of K (top-K trials).
-        
-        Args:
-            dataLoader: DataModule for loading data
-            max_k: Maximum K to test (number of top models to ensemble)
-        
-        Returns:
-            results: Dictionary with K values and corresponding F1 scores
-        """
-        if self.study is None:
-            print("⚠️ No study loaded. Call create_study() or load_study() first.")
-            return None
-            
-        # Get completed trials sorted by F1 score
-        completed_trials = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        if not completed_trials:
-            print("⚠️ No completed trials found!")
-            return None
-        
-        sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)
-        max_k = min(max_k, len(sorted_trials))
-        
-        print(f"Evaluating ensembles with K = 1 to {max_k}")
-        print(f"Total completed trials: {len(sorted_trials)}")
-        print("-" * 60)
-        
-        # Prepare validation data
-        dataLoader.setup(stage='fit', includeTestInTrain=False)
-        valLoader = dataLoader.val_dataloader()
-        
-        # Load all top-K models and get their predictions
-        all_models = []
-        all_predictions = []
-        all_targets = []
-        
-        print("Loading top models and collecting predictions...")
-        for i, trial in enumerate(sorted_trials[:max_k]):
-            print(f"  Loading model {i+1}/{max_k} (Trial {trial.number}, F1={trial.value:.4f})...", end=" ")
-            
-            try:
-                # Reconstruct model architecture
-                class TrialWrapper:
-                    def __init__(self, params):
-                        self.params = params
-                    def suggest_categorical(self, name, choices):
-                        return self.params[name]
-                    def suggest_int(self, name, low, high, log=False):
-                        return self.params[name]
-                    def suggest_float(self, name, low, high, log=False):
-                        return self.params[name]
-                
-                trial_wrapper = TrialWrapper(trial.params)
-                archParams = {}
-                archParams = self.setUpEncoder(trial_wrapper, archParams, dataLoader.getDatasetInfo())
-                archParams = self.setUpFeedForwardHead(trial_wrapper, archParams, dataLoader.getDatasetInfo())
-                
-                macroArch = trial.params.get('MacroArchitecture', 'Direct')
-                if macroArch == "Autoencoder":
-                    archParams = self.setUpDecoder(trial_wrapper, archParams, dataLoader.getDatasetInfo())
-                    archParams["ReconstructionLossWeight"] = trial.params.get('ReconstructionLossWeight', 0.5)
-                
-                archParams['LearningRate'] = trial.params['LearningRate']
-                archParams['RegularizationWeight'] = trial.params['RegularizationWeight']
-                archParams['Patience'] = trial.params['Patience']
-                archParams['OutputDim'] = 3
-                archParams['ClassWeightsPath'] = '../dataset/PirateProcessed/class_weights.yaml'
-                
-                # Find checkpoint for this trial
-                import glob
-                import os
-                
-                # Try multiple strategies to find the checkpoint:
-                # Strategy 1: Look for trial number in checkpoint filename
-                checkpoint_pattern = f'lightning_logs/version_*/checkpoints/trial-{trial.number}-*.ckpt'
-                checkpoints = glob.glob(checkpoint_pattern)
-                
-                # Strategy 2: If not found, try version directory matching trial number
-                if not checkpoints:
-                    version_dir = f'lightning_logs/version_{trial.number}/checkpoints/*.ckpt'
-                    checkpoints = glob.glob(version_dir)
-                
-                # Strategy 3: Search all checkpoints and match by timestamp or other heuristic
-                if not checkpoints:
-                    # Try looking at recent versions (trials are likely in order)
-                    for offset in range(-5, 6):  # Check nearby version numbers
-                        version_num = trial.number + offset
-                        if version_num >= 0:
-                            version_dir = f'lightning_logs/version_{version_num}/checkpoints/*.ckpt'
-                            potential = glob.glob(version_dir)
-                            if potential:
-                                checkpoints = potential
-                                break
-                
-                if not checkpoints:
-                    print("⚠️ Checkpoint not found, skipping")
-                    continue
-                
-                # Get the checkpoint (prefer ones with val_F1 in name, otherwise take the last one)
-                if any('val_F1=' in ckpt for ckpt in checkpoints):
-                    checkpoint_path = sorted([c for c in checkpoints if 'val_F1=' in c], 
-                                            key=lambda x: float(x.split('val_F1=')[1].split('.ckpt')[0]), 
-                                            reverse=True)[0]
-                else:
-                    # No F1 in name, just take the last checkpoint by name
-                    checkpoint_path = sorted(checkpoints)[-1]
-                
-                # Load model
-                if macroArch == "Direct":
-                    model = Direct.load_from_checkpoint(checkpoint_path, params=archParams)
-                else:
-                    model = LightningAutoencoder.load_from_checkpoint(checkpoint_path, params=archParams)
-                
-                model.eval()
-                model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
-                
-                # Get predictions on validation set
-                model_preds = []
-                targets = []
-                
-                with torch.no_grad():
-                    for batch in valLoader:
-                        inputData, labels = batch
-                        timeSeries, globalFeats = inputData
-                        timeSeries = timeSeries.to(model.device)
-                        globalFeats = globalFeats.to(model.device)
-                        
-                        # Get logits
-                        if macroArch == "Direct":
-                            logits = model(timeSeries, globalFeats)
-                        else:
-                            logits, _ = model((timeSeries, globalFeats))
-                        
-                        # Store softmax probabilities for ensemble
-                        probs = torch.softmax(logits, dim=1)
-                        model_preds.append(probs.cpu().numpy())
-                        targets.append(labels.cpu().numpy())
-                
-                # Concatenate all batches
-                model_preds = np.concatenate(model_preds, axis=0)
-                all_predictions.append(model_preds)
-                
-                if i == 0:  # Store targets only once
-                    all_targets = np.concatenate(targets, axis=0)
-                
-                print("✓")
-                
-            except Exception as e:
-                print(f"✗ Error: {e}")
-                continue
-        
-        if not all_predictions:
-            print("⚠️ No models loaded successfully!")
-            return None
-        
-        print(f"\n✓ Successfully loaded {len(all_predictions)} models")
-        print("\nEvaluating ensembles...")
-        print("-" * 60)
-        
-        # Calculate ensemble F1 for different K values
-        results = {
-            'k_values': [],
-            'f1_scores': [],
-            'individual_f1s': []
-        }
-        
-        from sklearn.metrics import f1_score
-        
-        for k in range(1, len(all_predictions) + 1):
-            # Average predictions from top-K models
-            ensemble_probs = np.mean(all_predictions[:k], axis=0)
-            ensemble_preds = np.argmax(ensemble_probs, axis=1)
-            
-            # Calculate F1 score (macro average to match your training)
-            f1 = f1_score(all_targets, ensemble_preds, average='macro')
-            
-            results['k_values'].append(k)
-            results['f1_scores'].append(f1)
-            
-            # Also store individual model F1 for reference
-            if k == 1:
-                individual_preds = np.argmax(all_predictions[0], axis=1)
-                individual_f1 = f1_score(all_targets, individual_preds, average='macro')
-                results['individual_f1s'].append(individual_f1)
-            
-            print(f"  K={k:2d}: Ensemble F1 = {f1:.4f}")
-        
-        return results, all_predictions, all_targets
-
-    #submission
-    def generate_ensemble_submission(self, dataLoader, optimal_k, submission_path='../Submissions/submission_ensemble.csv'):
-        """
-        Generate test predictions using optimal K-model ensemble with SubmissionGenerator.
-        
-        Args:
-            dataLoader: DataModule for loading data
-            optimal_k: Number of top models to use in ensemble
-            submission_path: Path to save the submission file
-        """
-        if self.study is None:
-            print("⚠️ No study loaded. Call create_study() or load_study() first.")
-            return None
-        
-        # Get top K trials
-        completed_trials = [t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)[:optimal_k]
-        
-        print(f"Generating ensemble predictions with K={optimal_k} models")
-        print("=" * 60)
-        
-        # Prepare test data
-        dataLoader.setup(stage='test', includeTestInTrain=False)
-        testLoader = dataLoader.test_dataloader()
-        
-        # Load models and create ensemble
-        loaded_models = []
-        model_types = []
-        
-        print("Loading models for ensemble...")
-        for i, trial in enumerate(sorted_trials):
-            print(f"  Loading model {i+1}/{optimal_k} (Trial {trial.number}, Val F1={trial.value:.4f})...", end=" ")
-            
-            try:
-                # Reconstruct model architecture
-                class TrialWrapper:
-                    def __init__(self, params):
-                        self.params = params
-                    def suggest_categorical(self, name, choices):
-                        return self.params[name]
-                    def suggest_int(self, name, low, high, log=False):
-                        return self.params[name]
-                    def suggest_float(self, name, low, high, log=False):
-                        return self.params[name]
-                
-                trial_wrapper = TrialWrapper(trial.params)
-                archParams = {}
-                archParams = self.setUpEncoder(trial_wrapper, archParams, dataLoader.getDatasetInfo())
-                archParams = self.setUpFeedForwardHead(trial_wrapper, archParams, dataLoader.getDatasetInfo())
-                
-                macroArch = trial.params.get('MacroArchitecture', 'Direct')
-                if macroArch == "Autoencoder":
-                    archParams = self.setUpDecoder(trial_wrapper, archParams, dataLoader.getDatasetInfo())
-                    archParams["ReconstructionLossWeight"] = trial.params.get('ReconstructionLossWeight', 0.5)
-                
-                archParams['LearningRate'] = trial.params['LearningRate']
-                archParams['RegularizationWeight'] = trial.params['RegularizationWeight']
-                archParams['Patience'] = trial.params['Patience']
-                archParams['OutputDim'] = 3
-                archParams['ClassWeightsPath'] = '../dataset/PirateProcessed/class_weights.yaml'
-                
-                # Find checkpoint
-                checkpoint_pattern = f'lightning_logs/version_*/checkpoints/trial-{trial.number}-*.ckpt'
-                checkpoints = glob.glob(checkpoint_pattern)
-                
-                if not checkpoints:
-                    version_dir = f'lightning_logs/version_{trial.number}/checkpoints/*.ckpt'
-                    checkpoints = glob.glob(version_dir)
-                
-                if not checkpoints:
-                    for offset in range(-5, 6):
-                        version_num = trial.number + offset
-                        if version_num >= 0:
-                            version_dir = f'lightning_logs/version_{version_num}/checkpoints/*.ckpt'
-                            potential = glob.glob(version_dir)
-                            if potential:
-                                checkpoints = potential
-                                break
-                
-                if not checkpoints:
-                    print("⚠️ Checkpoint not found, skipping")
-                    continue
-                
-                if any('val_F1=' in ckpt for ckpt in checkpoints):
-                    checkpoint_path = sorted([c for c in checkpoints if 'val_F1=' in c], 
-                                            key=lambda x: float(x.split('val_F1=')[1].split('.ckpt')[0]), 
-                                            reverse=True)[0]
-                else:
-                    checkpoint_path = sorted(checkpoints)[-1]
-                
-                # Load model
-                if macroArch == "Direct":
-                    model = Direct.load_from_checkpoint(checkpoint_path, params=archParams)
-                else:
-                    model = LightningAutoencoder.load_from_checkpoint(checkpoint_path, params=archParams)
-                
-                model.eval()
-                model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
-                loaded_models.append(model)
-                model_types.append(macroArch)
-                
-                print("✓")
-                
-            except Exception as e:
-                print(f"✗ Error: {e}")
-                continue
-        
-        if not loaded_models:
-            print("⚠️ No models loaded successfully!")
-            return None
-        
-        print(f"\n✓ Successfully loaded {len(loaded_models)} models")
-        print("\nCreating ensemble model...")
-        
-        # Create ensemble model wrapper
-        ensemble_model = EnsembleModel(loaded_models, model_types)
-        
-        # Use SubmissionGenerator with ensemble model
-        print("Generating submission using SubmissionGenerator...")
-        submission_generator = SubmissionGenerator(
-            model=ensemble_model,
-            dataloader=testLoader,
-            label_mapping={0: "no_pain", 1: "low_pain", 2: "high_pain"}
-        )
-        
-        # Generate submission
-        submission_df = submission_generator.generate_submission(output_path=submission_path)
-        
-        print("\n" + "=" * 60)
-        print("SUBMISSION GENERATED")
-        print("=" * 60)
-        print(f"File saved to: {submission_path}")
-        print(f"Total predictions: {len(submission_df)}")
-        print(f"\nPrediction distribution:")
-        label_counts = submission_df['label'].value_counts()
-        for label in ['no_pain', 'low_pain', 'high_pain']:
-            count = label_counts.get(label, 0)
-            percentage = count / len(submission_df) * 100
-            print(f"  {label}: {count:4d} samples ({percentage:5.2f}%)")
-        print("=" * 60)
-        
-        return submission_df
-
-
-
-
-
-
-
-
-
