@@ -1,0 +1,50 @@
+# Preprocessing parameters for the pipeline
+
+# Data paths
+path_raw_data: "../dataset/Pirate"
+path_processed_data: "../dataset/PirateProcessed"
+
+# File names
+name_train_file: "pirate_pain_train.csv"
+name_test_file: "pirate_pain_test.csv"
+name_train_labels_file: "pirate_pain_train_labels.csv"
+
+# Is pirate features
+drop_all_is_pirate: false
+one_hot_encode: false
+
+# Global feature extraction
+extract_global_features: true
+global_features_to_extract:
+  - statistical  # mean, std, min, max, range
+  - trend        # slope, first, last, change
+  - domain       # pain_survey aggregates, joint activity
+
+# Feature extraction (POD - Proper Orthogonal Decomposition)
+PCA : true
+explained_variance: 0.95
+
+# Feature selection
+feature_selection: true
+feature_selection_params:
+  method: "all_three_intersection"  # Options: 'variance_correlation_only', 'rf_top_k', 'mi_top_k', 
+                                     #          'lasso_nonzero', 'rf_union_mi', 'all_three_intersection', 'at_least_two'
+  variance_threshold: 0.01
+  correlation_threshold: 0.95
+  top_k_rf: 300
+  top_k_mi: 300
+  lasso_C: 0.1
+  rf_n_estimators: 100
+  rf_max_depth: 10
+  random_state: 42
+  selected_features_file: "selected_features.txt"  # Where to save the selected feature list
+
+# Verbose
+verbose: true
+
+# Exclude from normalization
+columns_excluded_from_normalization:
+  - sample_index
+  - time
+  - isPirate
+  - isNotPirate

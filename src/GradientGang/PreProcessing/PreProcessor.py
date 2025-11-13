@@ -6,15 +6,16 @@ import yaml
 from sklearn.decomposition import PCA
 from tqdm.notebook import tqdm
 import seaborn as sns
+import sys
+
+from ..Pipeline.Utils.FeatureSelector import FeatureSelector
 
 sns.set_theme()
 
 
 class PreProcessor:
     @staticmethod
-    def fromYAML(
-        path: str
-    ):
+    def fromYAML(path: str):
         """
         Builds a PreProcessor from a YAML file.
         Args:
@@ -30,9 +31,7 @@ class PreProcessor:
         # Create and return PreProcessor instance
         return PreProcessor(params)
 
-    def __init__(
-        self, params: dict
-    ):
+    def __init__(self, params: dict):
         """
         Initialize the PreProcessor with given parameters.
         Args:
@@ -55,18 +54,15 @@ class PreProcessor:
 
         # feature handling flags
         self.drop_all_is_pirate = self.params.get("drop_all_is_pirate", False)
-        self.one_hot_encode_is_pirate = self.params.get(
-            "one_hot_encode", False)
+        self.one_hot_encode_is_pirate = self.params.get("one_hot_encode", False)
 
         # PCA
         self.use_pca = self.params.get("PCA", False)
         if self.use_pca:
-            self.explained_variance = self.params.get(
-                "explained_variance", 0.95)
+            self.explained_variance = self.params.get("explained_variance", 0.95)
 
         # feature selection
-        self.use_feature_selection = self.params.get(
-            "feature_selection", False)
+        self.use_feature_selection = self.params.get("feature_selection", False)
         if self.use_feature_selection:
             self.feature_selected = self.params.get("feature_selected", None)
 
@@ -79,9 +75,7 @@ class PreProcessor:
         # verbosity
         self.verbose = self.params.get("verbose", True)
 
-    def load_data(
-        self, file_name: str
-    ) -> pd.DataFrame:
+    def load_data(self, file_name: str) -> pd.DataFrame:
         """
         Load data from a CSV file.
         Args:
@@ -97,9 +91,7 @@ class PreProcessor:
         data = pd.read_csv(file_path)
         return data
 
-    def save_data(
-        self, data, file_name: str
-    ):
+    def save_data(self, data, file_name: str):
         """
         Save data to a CSV file. Accepts DataFrame or NumPy array.
         Args:
@@ -118,9 +110,7 @@ class PreProcessor:
         # Save data to CSV
         data.to_csv(file_path, index=False)
 
-    def remove_last_column(
-        self, data: pd.DataFrame
-    ) -> pd.DataFrame:
+    def remove_last_column(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Remove the last column from the DataFrame.
         Args:
@@ -132,9 +122,7 @@ class PreProcessor:
         # Remove the last column from the DataFrame
         return data.drop(data.columns[-1], axis=1)
 
-    def handle_is_pirate_features(
-        self, data: pd.DataFrame
-    ) -> pd.DataFrame:
+    def handle_is_pirate_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Handle isPirate features by dropping or encoding them.
         Args:
@@ -155,8 +143,7 @@ class PreProcessor:
         # 0: two eyes, 1: one eye or eye patch, 2: no eyes (default)
         eye_map = {"two": 0, "one+eye_patch": 1}
         data["isPirate"] = data["n_eyes"].map(eye_map).fillna(0).astype(int)
-        data = data.drop(
-            columns=["n_legs", "n_hands", "n_eyes"], errors="ignore")
+        data = data.drop(columns=["n_eyes"], errors="ignore")
 
         # One-hot encode if specified
         if self.one_hot_encode_is_pirate:
@@ -177,8 +164,7 @@ class PreProcessor:
             Tuple[pd.DataFrame, pd.DataFrame]: Normalized training and test data
         """
         # Select numeric columns (includes integers and floats)
-        columns = training_data.select_dtypes(
-            include=[np.number]).columns.tolist()
+        columns = training_data.select_dtypes(include=[np.number]).columns.tolist()
 
         # Exclude specified columns from normalization
         for col in self.columns_excluded_from_normalization:
@@ -199,9 +185,127 @@ class PreProcessor:
 
         return training_data, test_data
 
-    def plot_one_time_series(
-        self, data: pd.DataFrame, number: int
-    ):
+    def extract_global_features(
+        self,
+        data: pd.DataFrame,
+        feature_types: list[str] = ["statistical", "trend", "domain"],
+    ) -> pd.DataFrame:
+        """
+        Extract global statistical and trend features from time series data.
+
+        Args:
+            data (pd.DataFrame): Time series data with sample_index, time, and feature columns
+            feature_types (list[str]): Types of features to extract
+
+        Returns:
+            pd.DataFrame: Global features with one row per sample_index
+        """
+        # Identify time series columns (exclude sample_index, time, isPirate, isNotPirate)
+        excluded_cols = ["sample_index", "time", "isPirate", "isNotPirate"]
+        time_series_cols = [col for col in data.columns if col not in excluded_cols]
+
+        # Get unique sample indices
+        sample_indices = data["sample_index"].unique()
+
+        # List to store feature dictionaries for each sample
+        features_list = []
+
+        for sample_id in sample_indices:
+            sample_data = data[data["sample_index"] == sample_id].copy()
+            feature_dict = {"sample_index": sample_id}
+
+            # Extract features for each time series column
+            for col in time_series_cols:
+                values = sample_data[col].values
+                time_values = sample_data["time"].values
+
+                # Statistical features
+                if "statistical" in feature_types:
+                    feature_dict[f"{col}_mean"] = np.mean(values)
+                    feature_dict[f"{col}_std"] = np.std(values)
+                    feature_dict[f"{col}_min"] = np.min(values)
+                    feature_dict[f"{col}_max"] = np.max(values)
+                    feature_dict[f"{col}_range"] = np.max(values) - np.min(values)
+
+                # Trend features
+                if "trend" in feature_types:
+                    try:
+                        # Linear regression slope
+                        slope, _ = np.polyfit(time_values, values, 1)
+                        feature_dict[f"{col}_slope"] = slope
+                    except:
+                        feature_dict[f"{col}_slope"] = 0.0
+
+                    feature_dict[f"{col}_first"] = values[0] if len(values) > 0 else 0.0
+                    feature_dict[f"{col}_last"] = values[-1] if len(values) > 0 else 0.0
+                    feature_dict[f"{col}_change"] = (
+                        values[-1] - values[0] if len(values) > 0 else 0.0
+                    )
+
+            # Domain-specific features
+            if "domain" in feature_types:
+                pain_survey_cols = [
+                    col for col in time_series_cols if "pain_survey" in col
+                ]
+                if pain_survey_cols:
+                    # Average of pain survey means
+                    pain_means = [
+                        feature_dict[f"{col}_mean"]
+                        for col in pain_survey_cols
+                        if f"{col}_mean" in feature_dict
+                    ]
+                    feature_dict["pain_survey_mean"] = (
+                        np.mean(pain_means) if pain_means else 0.0
+                    )
+
+                    # Standard deviation across pain surveys (consensus measure)
+                    pain_stds = [
+                        feature_dict[f"{col}_std"]
+                        for col in pain_survey_cols
+                        if f"{col}_std" in feature_dict
+                    ]
+                    feature_dict["pain_survey_std_across"] = (
+                        np.std(pain_stds) if pain_stds else 0.0
+                    )
+
+                    # Max divergence between surveys
+                    pain_maxes = [
+                        feature_dict[f"{col}_max"]
+                        for col in pain_survey_cols
+                        if f"{col}_max" in feature_dict
+                    ]
+                    pain_mins = [
+                        feature_dict[f"{col}_min"]
+                        for col in pain_survey_cols
+                        if f"{col}_min" in feature_dict
+                    ]
+                    if pain_maxes and pain_mins:
+                        feature_dict["pain_survey_max_divergence"] = np.max(
+                            pain_maxes
+                        ) - np.min(pain_mins)
+                    else:
+                        feature_dict["pain_survey_max_divergence"] = 0.0
+
+                # Joint activity features
+                joint_cols = [col for col in time_series_cols if "joint" in col]
+                if joint_cols:
+                    joint_means = [
+                        feature_dict[f"{col}_mean"]
+                        for col in joint_cols
+                        if f"{col}_mean" in feature_dict
+                    ]
+                    feature_dict["joint_activity_mean"] = (
+                        np.mean(joint_means) if joint_means else 0.0
+                    )
+
+            features_list.append(feature_dict)
+
+        # Convert to DataFrame
+        global_features_df = pd.DataFrame(features_list)
+
+        return global_features_df
+
+    def plot_one_time_series(self, data: pd.DataFrame, number: int):
         """
         Plot a single time series from the DataFrame.
         Args:
@@ -230,14 +334,10 @@ class PreProcessor:
             axes[6].plot(ti["time"], ti["joint_28"])
             axes[7].plot(ti["time"], ti["joint_29"])
 
-        axes[0].set(title="pain survey 1", xlabel="time",
-                    ylabel="pain_survey_1")
-        axes[1].set(title="pain survey 2", xlabel="time",
-                    ylabel="pain_survey_2")
-        axes[2].set(title="pain survey 3", xlabel="time",
-                    ylabel="pain_survey_3")
-        axes[3].set(title="pain survey 4", xlabel="time",
-                    ylabel="pain_survey_4")
+        axes[0].set(title="pain survey 1", xlabel="time", ylabel="pain_survey_1")
+        axes[1].set(title="pain survey 2", xlabel="time", ylabel="pain_survey_2")
+        axes[2].set(title="pain survey 3", xlabel="time", ylabel="pain_survey_3")
+        axes[3].set(title="pain survey 4", xlabel="time", ylabel="pain_survey_4")
         axes[4].set(title="joint 00", xlabel="time", ylabel="joint_00")
         axes[5].set(title="joint 01", xlabel="time", ylabel="joint_01")
         axes[6].set(title="joint 28", xlabel="time", ylabel="joint_28")
@@ -270,8 +370,7 @@ class PreProcessor:
         # Pivot and stack data into 3D NumPy array
         npData = np.stack(
             [
-                data.pivot(index="sample_index", columns="time",
-                           values=feat).to_numpy()
+                data.pivot(index="sample_index", columns="time", values=feat).to_numpy()
                 for feat in data.columns.difference([primaryKeyColumn, timeColumn])
             ],
             axis=-1,
@@ -305,17 +404,17 @@ class PreProcessor:
         plt.tight_layout()
         plt.show()
 
-    def apply_pca(
-        self, training_data: pd.DataFrame, test_data: pd.DataFrame
-    ):
+    def apply_pca(self, training_data: pd.DataFrame, test_data: pd.DataFrame):
         """
-        Apply PCA to reduce dimensionality of the data.
+        Apply PCA (Proper Orthogonal Decomposition) to time series to extract global features.
+        This method extracts POD features from time series and returns them as additional global features.
+
         Args:
             training_data (pd.DataFrame): The training data
             test_data (pd.DataFrame): The test data
 
         Returns:
-            tuple: Tuple containing the transformed training and test data as DataFrames
+            tuple: Tuple containing DataFrames with POD global features (one row per sample)
         """
 
         # Aggregate time series data into 3D NumPy arrays
@@ -356,69 +455,96 @@ class PreProcessor:
         pcaData = np.concatenate(pcaData, axis=1)
 
         trainingPcaData = pcaData[:maxTrainingIndex]
-
-        # Prepare final training data with PCA features
-        training_data.drop(
-            columns=training_data.columns.difference(
-                [
-                    "sample_index",
-                ]
-                + ["isPirate", "isNotPirate"]
-            ),
-            inplace=True,
-        )
-
-        # Group by sample_index and reset index
-        training_data = training_data.groupby(
-            "sample_index").first().reset_index()
-        training_data_pca = pd.DataFrame(trainingPcaData)
-
-        # Concatenate PCA features with the original training data
-        training_data = pd.concat(
-            [training_data.reset_index(drop=True), training_data_pca], axis=1
-        )
-
-        # Prepare final test data with PCA features
         testPcaData = pcaData[maxTrainingIndex:]
-        test_data.drop(
-            columns=test_data.columns.difference(
-                [
-                    "sample_index",
-                ]
-                + ["isPirate", "isNotPirate"]
-            ),
-            inplace=True,
-        )
 
-        # Group by sample_index and reset index
-        test_data = test_data.groupby("sample_index").first().reset_index()
-        test_data_pca = pd.DataFrame(testPcaData)
-        test_data = pd.concat(
-            [test_data.reset_index(drop=True), test_data_pca], axis=1)
+        # Create DataFrames with POD features
+        # Add POD_ prefix to distinguish from other global features
+        num_components = trainingPcaData.shape[1]
+        pod_columns = [f"POD_{i}" for i in range(num_components)]
 
-        # Return the transformed training and test data
-        return training_data, test_data
+        training_pod_df = pd.DataFrame(trainingPcaData, columns=pod_columns)
+        training_pod_df.insert(0, "sample_index", range(len(training_pod_df)))
+
+        test_pod_df = pd.DataFrame(testPcaData, columns=pod_columns)
+        test_pod_df.insert(0, "sample_index", range(len(test_pod_df)))
+
+        # Return POD global features (one row per sample)
+        return training_pod_df, test_pod_df
 
     def apply_feature_selection(
-        self, training_data: pd.DataFrame, test_data: pd.DataFrame
+        self,
+        train_global_features: pd.DataFrame,
+        test_global_features: pd.DataFrame,
+        train_labels: pd.Series,
     ):
         """
-        Select specific features from the data.
+        Apply feature selection to global features.
+
         Args:
-            training_data (pd.DataFrame): The training data
-            test_data (pd.DataFrame): The test data
+            train_global_features (pd.DataFrame): Training global features (with sample_index)
+            test_global_features (pd.DataFrame): Test global features (with sample_index)
+            train_labels (pd.Series): Training labels for supervised feature selection
+
         Returns:
-            tuple: Tuple containing the training and test data with selected features
+            tuple: (train_selected, test_selected) with selected features
         """
+        # Get feature selection parameters
+        fs_params = self.params.get("feature_selection_params", {})
 
-        # Select specific features from the data
-        training_data = training_data[self.feature_selected]
-        test_data = test_data[self.feature_selected]
-        return training_data, test_data
+        if not fs_params:
+            print(
+                "Warning: No feature_selection_params found in config. Using defaults."
+            )
+            fs_params = {
+                "method": "all_three_intersection",
+                "variance_threshold": 0.01,
+                "correlation_threshold": 0.95,
+                "top_k_rf": 300,
+                "top_k_mi": 300,
+                "random_state": 42,
+            }
 
-    def preprocess(
-        self
-    ):
+        # Initialize FeatureSelector
+        selector = FeatureSelector(fs_params)
+
+        # Separate isPirate and sample_index from features (must be preserved)
+        # isPirate is a critical feature that should not be subject to feature selection
+        train_X = train_global_features.drop(columns=["sample_index", "isPirate"])
+        test_X = test_global_features.drop(columns=["sample_index", "isPirate"])
+
+        # Fit on training data and transform both
+        train_X_selected = selector.fit_transform(train_X, train_labels)
+        test_X_selected = selector.transform(test_X)
+
+        # Reconstruct with sample_index and isPirate preserved
+        train_selected = pd.concat(
+            [
+                train_global_features[["sample_index"]].reset_index(drop=True),
+                train_global_features[["isPirate"]].reset_index(drop=True),
+                train_X_selected.reset_index(drop=True),
+            ],
+            axis=1,
+        )
+
+        # Reconstruct test data with sample_index, isPirate, and selected features
+        test_selected = pd.concat(
+            [
+                test_global_features[["sample_index"]].reset_index(drop=True),
+                test_global_features[["isPirate"]].reset_index(drop=True),
+                test_X_selected.reset_index(drop=True),
+            ],
+            axis=1,
+        )
+
+        # Save selected feature names if path specified
+        save_path = fs_params.get("selected_features_file", None)
+        if save_path:
+            full_path = os.path.join(self.path_processed_data, save_path)
+            selector.save_selected_features(full_path)
+
+        return train_selected, test_selected
+
+    def preprocess(self):
         """
         Main preprocessing function to load, process, and save data.
         """
@@ -461,8 +587,7 @@ class PreProcessor:
 
         # Normalize data
         try:
-            train_data, test_data = self.normalize_per_process(
-                train_data, test_data)
+            train_data, test_data = self.normalize_per_process(train_data, test_data)
         except Exception as e:
             print(f"Error normalizing data: {e}")
             return
@@ -475,41 +600,137 @@ class PreProcessor:
             except Exception:
                 pass
 
-        # Apply PCA if specified
+        # Extract global features if specified
+        extract_global = self.params.get("extract_global_features", False)
+        if extract_global:
+            try:
+                feature_types = self.params.get(
+                    "global_features_to_extract", ["statistical", "trend", "domain"]
+                )
+
+                # Extract from training data
+                train_global_features = self.extract_global_features(
+                    train_data, feature_types
+                )
+
+                # Extract from test data
+                test_global_features = self.extract_global_features(
+                    test_data, feature_types
+                )
+
+                print(f"Global features extracted successfully.")
+                print(
+                    f"  - Training: {train_global_features.shape[1] - 1} features from {train_global_features.shape[0]} samples"
+                )
+                print(
+                    f"  - Test: {test_global_features.shape[1] - 1} features from {test_global_features.shape[0]} samples"
+                )
+
+            except Exception as e:
+                print(f"Error extracting global features: {e}")
+                # Set to None to skip merging later
+                train_global_features = None
+                test_global_features = None
+        else:
+            print("Global feature extraction not enabled.")
+            train_global_features = None
+            test_global_features = None
+
+        # Apply PCA if specified (Proper Orthogonal Decomposition on time series)
         if self.use_pca:
             try:
-                train_data, test_data = self.apply_pca(train_data, test_data)
+                train_pod_features, test_pod_features = self.apply_pca(
+                    train_data, test_data
+                )
+                print(f"POD (PCA) applied successfully.")
+                print(f"  - POD components: {train_pod_features.shape[1] - 1}")
             except Exception as e:
                 print(f"Error applying PCA: {e}")
-                return
-            print("PCA applied successfully.")
+                train_pod_features = None
+                test_pod_features = None
         else:
             print("PCA not applied.")
+            train_pod_features = None
+            test_pod_features = None
 
-        # Apply feature selection if specified
+        # Merge all global features (isPirate + statistical/trend + POD)
+        # Extract isPirate as global feature
+        train_is_pirate = (
+            train_data.copy()
+            .groupby("sample_index")
+            .first()[["isPirate"]]
+            .reset_index()
+        )
+        train_data.drop(columns=["isPirate"], inplace=True, errors="ignore")
+        test_is_pirate = (
+            test_data.copy().groupby("sample_index").first()[["isPirate"]].reset_index()
+        )
+        test_data.drop(columns=["isPirate"], inplace=True, errors="ignore")
+
+        # Start with isPirate
+        train_global_combined = train_is_pirate.copy()
+        test_global_combined = test_is_pirate.copy()
+
+        # Merge statistical/trend global features if available
+        if train_global_features is not None:
+            train_global_combined = train_global_combined.merge(
+                train_global_features, on="sample_index", how="left"
+            )
+            test_global_combined = test_global_combined.merge(
+                test_global_features, on="sample_index", how="left"
+            )
+
+        # Merge POD features if available
+        if train_pod_features is not None:
+            train_global_combined = train_global_combined.merge(
+                train_pod_features, on="sample_index", how="left"
+            )
+            test_global_combined = test_global_combined.merge(
+                test_pod_features, on="sample_index", how="left"
+            )
+
+        # Apply feature selection on global features if specified
         if self.use_feature_selection:
             try:
-                train_data, test_data = self.apply_feature_selection(
-                    train_data, test_data
+                # Map labels to numeric for supervised feature selection
+                label_map = {"no_pain": 0, "low_pain": 1, "high_pain": 2}
+                train_labels_numeric = train_labels["label"].map(label_map)
+
+                print("\nApplying feature selection to global features...")
+                train_global_combined, test_global_combined = (
+                    self.apply_feature_selection(
+                        train_global_combined,
+                        test_global_combined,
+                        train_labels_numeric,
+                    )
                 )
             except Exception as e:
                 print(f"Error applying feature selection: {e}")
-                return
-            print("Feature selection applied successfully.")
+                import traceback
+
+                traceback.print_exc()
+                # Continue with unselected features
         else:
             print("Feature selection not applied.")
 
-        # Save processed data
+        # Save final global features (selected or full)
         try:
-            self.save_data(train_data, self.name_train_file)
-            self.save_data(test_data, self.name_test_file)
-            self.save_data(train_labels, self.name_train_labels_file)
+            self.save_data(train_global_combined, "train_global_features.csv")
+            self.save_data(test_global_combined, "test_global_features.csv")
+            print(f"Global features saved successfully.")
+            print(f"  - Total global features: {train_global_combined.shape[1] - 1}")
         except Exception as e:
-            print(f"Error saving data: {e}")
-        print("Data saved successfully.")
+            print(f"Error saving global features: {e}")
 
-        self.computeAndSaveClassWeights(train_labels, savingPath=os.path.join(
-            self.path_processed_data, "class_weights.yaml"))
+        self.save_data(train_data, self.name_train_file)
+        self.save_data(test_data, self.name_test_file)
+        self.save_data(train_labels, self.name_train_labels_file)
+
+        self.computeAndSaveClassWeights(
+            train_labels,
+            savingPath=os.path.join(self.path_processed_data, "class_weights.yaml"),
+        )
+        print("Data saved successfully.")
 
     def computeAndSaveClassWeights(
         self, labels: pd.DataFrame, savingPath: str = "class_weights.yaml"
@@ -519,12 +740,8 @@ class PreProcessor:
         Args:
             labels (pd.DataFrame): DataFrame containing the labels
         """
-        labels_mapping = {
-            "no_pain": 0,
-            "low_pain": 1,
-            "high_pain": 2
-        }
-        class_counts = labels['label'].value_counts().to_dict()
+        labels_mapping = {"no_pain": 0, "low_pain": 1, "high_pain": 2}
+        class_counts = labels["label"].value_counts().to_dict()
         total_samples = len(labels)
         class_weights = {
             cls: total_samples / (len(class_counts) * count)
