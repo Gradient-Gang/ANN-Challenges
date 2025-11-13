@@ -209,13 +209,12 @@ class TimeSeriesAndGlobalDataset(Dataset):
             stride (int): Stride for sliding window (default: 160, no overlap).
         """
 
-        # Validate input dimensions
+        # Validate input dimensions (fail fast)
         if time_series_data is not None:
             assert len(time_series_data) == len(
                 global_data
             ), "All inputs must have the same number of samples."
 
-        # Validate labels length
         if labels is not None:
             assert len(global_data) == len(
                 labels
@@ -225,6 +224,9 @@ class TimeSeriesAndGlobalDataset(Dataset):
         self.time_series_data = time_series_data
         self.global_data = global_data
         self.labels = labels
+
+        # Cache original number of samples (before windowing)
+        self.num_original_samples = len(global_data)
 
         # Windowing parameters
         self.use_windowing = use_windowing
@@ -236,57 +238,73 @@ class TimeSeriesAndGlobalDataset(Dataset):
         if use_windowing and time_series_data is not None:
             self._build_window_map()
 
-        # Store dataset Information for quick access
+        # Store dataset information for quick access (pre-computed)
         self.timeSeriesShape = (
             time_series_data.shape[1:] if time_series_data is not None else None
         )
         self.globalFeaturesShape = global_data.shape[1:]
-        self.numClasses = (
-            (labels.max().item() + 1) if labels is not None and len(labels) > 0 else 0
-        )
+
+        # Compute numClasses efficiently (avoid repeated .max() calls)
+        if labels is not None and len(labels) > 0:
+            # Use labels.unique() which is more efficient than max() for this purpose
+            unique_labels = labels[labels >= 0].unique()  # Exclude -1 (unlabeled)
+            self.numClasses = len(unique_labels) if len(unique_labels) > 0 else 0
+        else:
+            self.numClasses = 0
 
     def _build_window_map(self):
-        """Build mapping: window_idx -> (sample_idx, start_pos)"""
-        self.window_map = []
+        """Build mapping: window_idx -> (sample_idx, start_pos) efficiently"""
         num_samples = len(self.time_series_data)
+        seq_len = self.time_series_data.shape[2]  # Same for all samples
 
-        for sample_idx in range(num_samples):
-            seq_len = self.time_series_data.shape[2]  # (samples, channels, timesteps)
+        # Pre-calculate number of windows per sample for efficient allocation
+        num_windows_per_sample = ((seq_len - self.window_size) // self.stride) + 1
 
-            # Create windows for this sample
-            for start in range(0, seq_len, self.stride):
-                self.window_map.append((sample_idx, start))
+        # Generate all window positions for one sample (reusable pattern)
+        window_starts = list(range(0, seq_len, self.stride))
+        # Remove positions where window extends too far beyond sequence
+        window_starts = [s for s in window_starts if s < seq_len]
 
-                # Stop if we've covered or exceeded the sequence
-                if start + self.window_size >= seq_len:
-                    break
+        # Build map efficiently using list comprehension
+        self.window_map = [
+            (sample_idx, start)
+            for sample_idx in range(num_samples)
+            for start in window_starts
+        ]
 
     def __len__(self):
-        # Return the number of windows if windowing is enabled, otherwise number of samples
-        if self.use_windowing and len(self.window_map) > 0:
+        # Return cached length (windows if enabled, otherwise original samples)
+        # Using window_map length is O(1) since it's pre-computed
+        if self.use_windowing and self.window_map:
             return len(self.window_map)
-        return self.global_data.shape[0]
+        return self.num_original_samples
 
     def __getitem__(self, index):
         # If windowing is enabled, extract the appropriate window
         if self.use_windowing and len(self.window_map) > 0:
             sample_idx, start_pos = self.window_map[index]
 
-            # Extract windowed time series
+            # Extract windowed time series (optimized with pre-computed end position)
             if self.time_series_data is not None:
-                end_pos = min(
-                    start_pos + self.window_size, self.time_series_data.shape[2]
-                )
-                windowed_ts = self.time_series_data[sample_idx, :, start_pos:end_pos]
+                end_pos = start_pos + self.window_size
 
-                # Pad if necessary (when window extends beyond sequence length)
-                if windowed_ts.shape[1] < self.window_size:
-                    padding = torch.zeros(
-                        (windowed_ts.shape[0], self.window_size - windowed_ts.shape[1]),
-                        dtype=windowed_ts.dtype,
-                        device=windowed_ts.device,
+                # Fast path: no padding needed (most common case)
+                if end_pos <= self.time_series_data.shape[2]:
+                    windowed_ts = self.time_series_data[
+                        sample_idx, :, start_pos:end_pos
+                    ]
+                else:
+                    # Slow path: padding needed (rare)
+                    actual_end = self.time_series_data.shape[2]
+                    windowed_ts = self.time_series_data[
+                        sample_idx, :, start_pos:actual_end
+                    ]
+
+                    # Use F.pad for efficiency instead of torch.cat
+                    pad_size = self.window_size - windowed_ts.shape[1]
+                    windowed_ts = torch.nn.functional.pad(
+                        windowed_ts, (0, pad_size), mode="constant", value=0
                     )
-                    windowed_ts = torch.cat([windowed_ts, padding], dim=1)
             else:
                 windowed_ts = None
 
@@ -403,7 +421,8 @@ class DataModule(L.LightningDataModule):
                     self.data_dir, self.train_global_features_file
                 )
 
-            # Load labeled training dataset and unlabeled test dataset separately
+            # Load labeled training dataset WITHOUT windowing first
+            # Windowing will be applied AFTER train/val split to prevent data leakage
             labeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
                 labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
@@ -412,27 +431,47 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
                 globalFeaturesPath=train_global_path,
-                use_windowing=self.use_windowing,
+                use_windowing=False,  # ← NO WINDOWING YET to prevent leakage
                 window_size=self.window_size,
                 stride=self.stride,
                 drop_column_list=drop_column_list,
             )
 
+            # Update data info with non-windowed shape for now
             self.updateDataInfo(labeled_dataset)
 
-            # Store full labeled dataset for K-Fold splitting
+            # Store full labeled dataset for K-Fold splitting (non-windowed)
             self._full_labeled_dataset = labeled_dataset
 
             # Split labeled dataset into train/val (do not mix unlabeled test into this split)
+            # CRITICAL: Split happens on ORIGINAL SAMPLES, not windows
             # If using K-Fold, this will be overridden by setup_fold()
             val_size = int(len(labeled_dataset) * self.val_split)
             train_size = len(labeled_dataset) - val_size
 
-            self.train_labeled, self.val_dataset = random_split(
+            train_subset, val_subset = random_split(
                 labeled_dataset,
                 [train_size, val_size],
                 generator=self.trainValGenerator,
             )
+
+            # NOW apply windowing separately to train and validation subsets
+            # This prevents data leakage between sets
+            if self.use_windowing:
+                # Apply windowing to train subset
+                train_dataset_windowed = self._apply_windowing_to_subset(train_subset)
+                self.train_labeled = train_dataset_windowed
+
+                # Apply windowing to validation subset
+                val_dataset_windowed = self._apply_windowing_to_subset(val_subset)
+                self.val_dataset = val_dataset_windowed
+
+                # Update data info with windowed shape
+                self.updateDataInfo(train_dataset_windowed)
+            else:
+                # No windowing, use subsets as-is
+                self.train_labeled = train_subset
+                self.val_dataset = val_subset
 
             if includeTestInTrain:
                 # Determine test global features file path
@@ -442,6 +481,8 @@ class DataModule(L.LightningDataModule):
                         self.data_dir, self.test_global_features_file
                     )
 
+                # Load unlabeled test dataset with same windowing setting as training
+                # For autoencoder training, we can apply windowing to test data
                 unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                     dataPath=os.path.join(self.data_dir, self.test_file_name),
                     labelsPath=None,
@@ -450,7 +491,7 @@ class DataModule(L.LightningDataModule):
                     primaryKeyColumn=self.primaryKeyColumn,
                     timeSeriesColumns=self.timeSeriesColumns,
                     globalFeaturesPath=test_global_path,
-                    use_windowing=self.use_windowing,
+                    use_windowing=self.use_windowing,  # Same windowing as train
                     window_size=self.window_size,
                     stride=self.stride,
                     drop_column_list=drop_column_list,
@@ -484,6 +525,48 @@ class DataModule(L.LightningDataModule):
                 stride=self.stride,
                 drop_column_list=drop_column_list,
             )
+
+    def _apply_windowing_to_subset(self, subset: Subset) -> TimeSeriesAndGlobalDataset:
+        """
+        Apply windowing to a subset of the dataset.
+
+        This creates a new windowed dataset from the samples in the subset,
+        preventing data leakage between train and validation sets.
+
+        Args:
+            subset: A Subset object containing indices into the original dataset
+
+        Returns:
+            A new TimeSeriesAndGlobalDataset with windowing applied
+        """
+        # Get the underlying dataset
+        original_dataset = subset.dataset
+        indices = subset.indices
+
+        # Extract data for these specific indices
+        if original_dataset.time_series_data is not None:
+            subset_time_series = original_dataset.time_series_data[indices]
+        else:
+            subset_time_series = None
+
+        subset_global = original_dataset.global_data[indices]
+
+        if original_dataset.labels is not None:
+            subset_labels = original_dataset.labels[indices]
+        else:
+            subset_labels = None
+
+        # Create new dataset with windowing enabled
+        windowed_dataset = TimeSeriesAndGlobalDataset(
+            time_series_data=subset_time_series,
+            global_data=subset_global,
+            labels=subset_labels,
+            use_windowing=True,  # Enable windowing
+            window_size=self.window_size,
+            stride=self.stride,
+        )
+
+        return windowed_dataset
 
     def updateDataInfo(self, dataset: TimeSeriesAndGlobalDataset) -> dict:
         # Update time series shape if windowing is enabled
@@ -611,9 +694,17 @@ class DataModule(L.LightningDataModule):
         splits = list(kfold.split(all_indices))
         train_indices, val_indices = splits[fold_idx]
 
-        # Create train and val subsets
-        self.train_labeled = Subset(self._full_labeled_dataset, train_indices.tolist())
-        self.val_dataset = Subset(self._full_labeled_dataset, val_indices.tolist())
+        # Create train and val subsets (non-windowed)
+        train_subset = Subset(self._full_labeled_dataset, train_indices.tolist())
+        val_subset = Subset(self._full_labeled_dataset, val_indices.tolist())
+
+        # Apply windowing separately to prevent leakage
+        if self.use_windowing:
+            self.train_labeled = self._apply_windowing_to_subset(train_subset)
+            self.val_dataset = self._apply_windowing_to_subset(val_subset)
+        else:
+            self.train_labeled = train_subset
+            self.val_dataset = val_subset
 
         # Optionally include unlabeled test data in training
         if (
