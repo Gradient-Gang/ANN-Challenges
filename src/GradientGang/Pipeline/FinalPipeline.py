@@ -8,6 +8,8 @@ import warnings
 import dotenv
 import os
 import numpy as np
+import matplotlib.pyplot as plt
+from collections import defaultdict
 
 warnings.filterwarnings('ignore')
 
@@ -125,6 +127,49 @@ class FinalPipeline:
         print(f"Pruner: {self.study.pruner.__class__.__name__}")
         print(f"Storage: {'Database' if self.storage else 'In-memory'}")
         print(f"Total trials: {len(self.study.trials)}")
+
+    def study_summary(self):
+        """
+        Print the current status of the Optuna study.
+        Displays key information about the study including:
+        - Study name
+        - Direction (maximize/minimize)
+        - Total number of trials
+        - Number of completed, failed, pruned, and running trials
+        - Best trial number and F1 score
+        - Top 5 trials with architecture details
+        ️- Recent trial states with symbols indicating status
+        ️- Warning if no trials exist in the study.
+        """
+
+        study = self.study
+        print(f"Study name: {study.study_name}")
+        print(f"Direction: {study.direction}")
+        print(f"Total trials: {len(study.trials)}")
+        print(f"Completed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}")
+        print(f"Failed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])}")
+        print(f"Pruned trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])}")
+        print(f"Running trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.RUNNING])}")
+
+        if len(study.trials) > 0:
+            completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+            if completed_trials:
+                print(f"\n✓ Best trial: {study.best_trial.number}")
+                print(f"✓ Best F1 score: {study.best_value:.4f}")
+                print(f"\nTop 5 trials:")
+                sorted_trials = sorted(completed_trials, key=lambda t: t.value, reverse=True)[:5]
+                for i, trial in enumerate(sorted_trials, 1):
+                    arch = trial.params.get('MacroArchitecture', 'Unknown')
+                    enc = trial.params.get('architectureType', 'Unknown')
+                    print(f"  {i}. Trial {trial.number}: F1={trial.value:.4f} | {arch} | {enc}")
+            
+            print("\n📊 Trial states (last 10):")
+            for trial in study.trials[-10:]:
+                state_symbol = "✓" if trial.state == optuna.trial.TrialState.COMPLETE else "✗" if trial.state == optuna.trial.TrialState.FAIL else "⊗" if trial.state == optuna.trial.TrialState.PRUNED else "⟳"
+                value_str = f"F1={trial.value:.4f}" if trial.value is not None else "N/A"
+                print(f"  {state_symbol} Trial {trial.number}: {trial.state.name} | {value_str}")
+        else:
+            print("\n⚠️ No trials found in this study. Run optimization to start!")
 
     #optimizer
     def optuna_optimize(self, n_trials: int = 500):
@@ -1095,3 +1140,4 @@ class FinalPipeline:
         
         # Return mean F1 as the optimization objective
         return mean_f1
+
