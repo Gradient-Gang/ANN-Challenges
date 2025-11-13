@@ -303,8 +303,37 @@ class Decoder(nn.Module):
                     input_size = rnn_layer.input_size
 
                     # Reshape encoder output as initial hidden state h0
-                    # x shape: (batch, hidden_size * directions) from encoder
-                    # h0 shape: (num_layers * directions, batch, hidden_size)
+                    # Encoder output: (batch, encoder_hidden * encoder_directions)
+                    # Decoder needs: (num_layers, batch, decoder_hidden)
+                    #
+                    # Common case: encoder is bidirectional (2 directions), decoder is not (1 direction)
+                    # So encoder outputs 2*hidden, we need to project/select to 1*hidden for decoder
+                    
+                    encoder_output_features = x.shape[1]
+                    decoder_expected_features = num_layers * hidden_size
+                    
+                    # If encoder output doesn't match decoder expectation, we need to adapt
+                    if encoder_output_features != decoder_expected_features:
+                        # Encoder might be bidirectional outputting 2*hidden, decoder expects 1*hidden
+                        if encoder_output_features == 2 * decoder_expected_features:
+                            # Take only the forward direction or average both directions
+                            # Average both directions for better information preservation
+                            x_forward = x[:, :decoder_expected_features]
+                            x_backward = x[:, decoder_expected_features:]
+                            x = (x_forward + x_backward) / 2
+                        elif encoder_output_features > decoder_expected_features:
+                            # Use a linear projection (but we don't have the layer here)
+                            # For now, just truncate to the expected size
+                            x = x[:, :decoder_expected_features]
+                        else:
+                            # Encoder output is smaller than expected - this is an error
+                            raise RuntimeError(
+                                f"[Decoder RNN] Shape mismatch! Encoder output has {encoder_output_features} features, "
+                                f"but decoder expects {decoder_expected_features} (num_layers={num_layers} * hidden_size={hidden_size}). "
+                                f"Full encoder output shape: {x.shape}. "
+                                f"Cannot adapt from smaller to larger hidden state!"
+                            )
+                    
                     h0 = x.view(num_layers, batch_size, hidden_size)
 
                     # Initialize cell state for LSTM (not needed for GRU/RNN)
