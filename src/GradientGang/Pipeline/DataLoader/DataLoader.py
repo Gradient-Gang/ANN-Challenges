@@ -25,6 +25,9 @@ class TimeSeriesAndGlobalDataset(Dataset):
         timeSeriesColumns: list[str] | None = None,
         labelMapping: list[str] = ["no_pain", "low_pain", "high_pain"],
         globalFeaturesPath: str | None = None,
+        use_windowing: bool = False,
+        window_size: int = 160,
+        stride: int = 160,
     ) -> "TimeSeriesAndGlobalDataset":
         """
         Create a TimeSeriesAndGlobalDataset from CSV files.
@@ -36,6 +39,9 @@ class TimeSeriesAndGlobalDataset(Dataset):
             timeSeriesColumns (list[str] | None): List of column names for time series features
             labelMapping (list[str]): List of possible labels for mapping string labels to integers.
             globalFeaturesPath (str | None): Path to CSV file containing pre-extracted global features (e.g., from PreProcessor)
+            use_windowing (bool): Whether to apply windowing augmentation.
+            window_size (int): Size of each window (default: 160, full sequence).
+            stride (int): Stride for sliding window (default: 160, no overlap).
         Returns:
             TimeSeriesAndGlobalDataset: The constructed dataset.
         """
@@ -156,13 +162,18 @@ class TimeSeriesAndGlobalDataset(Dataset):
             labels = torch.full((len(sample_ids),), -1, dtype=torch.long)
 
         # Return the constructed dataset
-        return TimeSeriesAndGlobalDataset(timeSeries, globalFeatures, labels)
+        return TimeSeriesAndGlobalDataset(
+            timeSeries, globalFeatures, labels, use_windowing, window_size, stride
+        )
 
     def __init__(
         self,
         time_series_data: torch.Tensor | None,
         global_data: torch.Tensor,
         labels: torch.Tensor | None,
+        use_windowing: bool = False,
+        window_size: int = 160,
+        stride: int = 160,
     ):
         """
         Initialize the TimeSeriesAndGlobalDataset.
@@ -170,6 +181,9 @@ class TimeSeriesAndGlobalDataset(Dataset):
             time_series_data (torch.Tensor | None): Time series data tensor or None if not available.
             global_data (torch.Tensor): Global features tensor.
             labels (torch.Tensor | None): Labels tensor or None if not available.
+            use_windowing (bool): Whether to apply windowing augmentation.
+            window_size (int): Size of each window (default: 160, full sequence).
+            stride (int): Stride for sliding window (default: 160, no overlap).
         """
 
         # Validate input dimensions
@@ -189,6 +203,16 @@ class TimeSeriesAndGlobalDataset(Dataset):
         self.global_data = global_data
         self.labels = labels
 
+        # Windowing parameters
+        self.use_windowing = use_windowing
+        self.window_size = window_size
+        self.stride = stride
+
+        # Build window index if windowing is enabled
+        self.window_map = []
+        if use_windowing and time_series_data is not None:
+            self._build_window_map()
+
         # Store dataset Information for quick access
         self.timeSeriesShape = (
             time_series_data.shape[1:] if time_series_data is not None else None
@@ -198,12 +222,58 @@ class TimeSeriesAndGlobalDataset(Dataset):
             (labels.max().item() + 1) if labels is not None and len(labels) > 0 else 0
         )
 
+    def _build_window_map(self):
+        """Build mapping: window_idx -> (sample_idx, start_pos)"""
+        self.window_map = []
+        num_samples = len(self.time_series_data)
+
+        for sample_idx in range(num_samples):
+            seq_len = self.time_series_data.shape[2]  # (samples, channels, timesteps)
+
+            # Create windows for this sample
+            for start in range(0, seq_len, self.stride):
+                self.window_map.append((sample_idx, start))
+
+                # Stop if we've covered or exceeded the sequence
+                if start + self.window_size >= seq_len:
+                    break
+
     def __len__(self):
-        # Return the number of samples in the dataset
+        # Return the number of windows if windowing is enabled, otherwise number of samples
+        if self.use_windowing and len(self.window_map) > 0:
+            return len(self.window_map)
         return self.global_data.shape[0]
 
     def __getitem__(self, index):
-        # Retrieve the sample at the specified index
+        # If windowing is enabled, extract the appropriate window
+        if self.use_windowing and len(self.window_map) > 0:
+            sample_idx, start_pos = self.window_map[index]
+
+            # Extract windowed time series
+            if self.time_series_data is not None:
+                end_pos = min(
+                    start_pos + self.window_size, self.time_series_data.shape[2]
+                )
+                windowed_ts = self.time_series_data[sample_idx, :, start_pos:end_pos]
+
+                # Pad if necessary (when window extends beyond sequence length)
+                if windowed_ts.shape[1] < self.window_size:
+                    padding = torch.zeros(
+                        (windowed_ts.shape[0], self.window_size - windowed_ts.shape[1]),
+                        dtype=windowed_ts.dtype,
+                        device=windowed_ts.device,
+                    )
+                    windowed_ts = torch.cat([windowed_ts, padding], dim=1)
+            else:
+                windowed_ts = None
+
+            # Return windowed data with corresponding global features and label
+            return (
+                windowed_ts,
+                self.global_data[sample_idx],
+            ), (self.labels[sample_idx] if self.labels is not None else None)
+
+        # Original behavior: retrieve the full sample at the specified index
         return (
             self.time_series_data[index] if self.time_series_data is not None else None,
             self.global_data[index],
@@ -281,6 +351,11 @@ class DataModule(L.LightningDataModule):
         self.current_fold = None
         self._full_labeled_dataset = None  # Store full dataset for K-Fold splitting
 
+        # Windowing parameters
+        self.use_windowing = params.get("use_windowing", False)
+        self.window_size = params.get("window_size", 160)
+        self.stride = params.get("stride", 160)
+
     def setup(self, stage: str | None = None, includeTestInTrain: bool = True):
         """
         Setup datasets for training, validation, and testing.
@@ -307,6 +382,9 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
                 globalFeaturesPath=train_global_path,
+                use_windowing=self.use_windowing,
+                window_size=self.window_size,
+                stride=self.stride,
             )
 
             self.updateDataInfo(labeled_dataset)
@@ -341,6 +419,9 @@ class DataModule(L.LightningDataModule):
                     primaryKeyColumn=self.primaryKeyColumn,
                     timeSeriesColumns=self.timeSeriesColumns,
                     globalFeaturesPath=test_global_path,
+                    use_windowing=self.use_windowing,
+                    window_size=self.window_size,
+                    stride=self.stride,
                 )
 
                 # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
@@ -366,14 +447,29 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
                 globalFeaturesPath=test_global_path,
+                use_windowing=self.use_windowing,
+                window_size=self.window_size,
+                stride=self.stride,
             )
 
     def updateDataInfo(self, dataset: TimeSeriesAndGlobalDataset) -> dict:
+        # Update time series shape if windowing is enabled
+        if dataset.use_windowing and dataset.timeSeriesShape is not None:
+            # Time series shape becomes (features, window_size) instead of (features, original_seq_len)
+            windowed_shape = (dataset.timeSeriesShape[0], dataset.window_size)
+            timeSeriesShape = windowed_shape
+        else:
+            timeSeriesShape = dataset.timeSeriesShape
+
         self.dataInfo = {
-            "timeSeriesShape": dataset.timeSeriesShape,
+            "timeSeriesShape": timeSeriesShape,
             "globalFeaturesShape": dataset.globalFeaturesShape,
             "numClasses": dataset.numClasses,
+            "use_windowing": dataset.use_windowing,
+            "window_size": dataset.window_size if dataset.use_windowing else None,
+            "stride": dataset.stride if dataset.use_windowing else None,
         }
+        return self.dataInfo
 
     def train_dataloader(self):
         """
@@ -478,13 +574,13 @@ class DataModule(L.LightningDataModule):
         kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=42)
 
         # Get train/val indices for this fold
-        all_indices = list(range(len(self._full_labeled_dataset)))
+        all_indices = np.arange(len(self._full_labeled_dataset))
         splits = list(kfold.split(all_indices))
         train_indices, val_indices = splits[fold_idx]
 
         # Create train and val subsets
-        self.train_labeled = Subset(self._full_labeled_dataset, train_indices)
-        self.val_dataset = Subset(self._full_labeled_dataset, val_indices)
+        self.train_labeled = Subset(self._full_labeled_dataset, train_indices.tolist())
+        self.val_dataset = Subset(self._full_labeled_dataset, val_indices.tolist())
 
         # Optionally include unlabeled test data in training
         if (
