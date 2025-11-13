@@ -151,8 +151,19 @@ class LightningAutoencoder(L.LightningModule):
             (encoded_timeSeries, encoded_globalFeatures), dim=1
         )
         predictions = self.feedforward(combined_encoded)
-        # Pass sequence length to decoder for LSTM autoencoder reconstruction
-        decoded = self.decoder(encoded_timeSeries, seq_len=original_seq_len)
+
+        # Pass sequence length and ground truth to decoder for LSTM autoencoder reconstruction
+        # During training: use teacher forcing (pass ground truth)
+        # During inference: use autoregressive generation (pass None)
+        if self.training:
+            decoded = self.decoder(
+                encoded_timeSeries, seq_len=original_seq_len, ground_truth=timeSeries
+            )
+        else:
+            decoded = self.decoder(
+                encoded_timeSeries, seq_len=original_seq_len, ground_truth=None
+            )
+
         decoded_globalFeatures = self.globalff_decoder(encoded_globalFeatures)
 
         return predictions, (decoded, decoded_globalFeatures)

@@ -261,7 +261,7 @@ class Decoder(nn.Module):
 
         self.net = nn.Sequential(*modules)
 
-    def forward(self, x, seq_len=None):
+    def forward(self, x, seq_len=None, ground_truth=None):
         """
         Forward pass for decoder.
 
@@ -270,7 +270,10 @@ class Decoder(nn.Module):
                - (batch, features) for standard decoding
                - (batch, seq_len, features) for sequence decoding
             seq_len: Optional sequence length for LSTM autoencoder reconstruction.
-                     If provided and input is 2D, will repeat the embedding for each timestep.
+                     If provided and input is 2D, will be used for sequence generation.
+            ground_truth: Optional ground truth sequence for teacher forcing during training.
+                         Shape: (batch, features, seq_len) - will be permuted internally.
+                         Only used for RNN decoder during training.
 
         Returns:
             Decoded output tensor
@@ -282,12 +285,85 @@ class Decoder(nn.Module):
         )
 
         if has_recurrent:
-            # For LSTM autoencoder: expand 2D embeddings to 3D sequences
-            # Input: (batch, hidden_size) → (batch, seq_len, hidden_size)
+            # For LSTM autoencoder: use encoder output as initial hidden state
+            # and generate sequences autoregressively
             if len(x.shape) == 2 and seq_len is not None:
-                # Repeat the embedding for each timestep
-                # (batch, seq_len, hidden_size)
-                x = x.unsqueeze(1).repeat(1, seq_len, 1)
+                batch_size = x.size(0)
+
+                # Find the RNN layer to get its configuration
+                rnn_layer = None
+                for layer in self.net:
+                    if isinstance(layer, (nn.LSTM, nn.GRU, nn.RNN)):
+                        rnn_layer = layer
+                        break
+
+                if rnn_layer is not None:
+                    num_layers = rnn_layer.num_layers
+                    hidden_size = rnn_layer.hidden_size
+                    input_size = rnn_layer.input_size
+
+                    # Reshape encoder output as initial hidden state h0
+                    # x shape: (batch, hidden_size * directions) from encoder
+                    # h0 shape: (num_layers * directions, batch, hidden_size)
+                    h0 = x.view(num_layers, batch_size, hidden_size)
+
+                    # Initialize cell state for LSTM (not needed for GRU/RNN)
+                    if isinstance(rnn_layer, nn.LSTM):
+                        c0 = torch.zeros_like(h0)
+                        hidden_state = (h0, c0)
+                    else:
+                        hidden_state = h0
+
+                    # Prepare decoder input sequence
+                    if self.training and ground_truth is not None:
+                        # Training: Teacher forcing
+                        # ground_truth shape: (batch, features, seq_len)
+                        # Permute to: (batch, seq_len, features)
+                        ground_truth_permuted = ground_truth.permute(0, 2, 1)
+
+                        # Shift right: prepend start token (zeros), drop last timestep
+                        # This creates: [START, x_0, x_1, ..., x_{T-2}]
+                        # Target will be:      [x_0, x_1, x_2, ..., x_{T-1}]
+                        start_token = torch.zeros(
+                            batch_size, 1, input_size, device=x.device
+                        )
+                        decoder_input = torch.cat(
+                            [start_token, ground_truth_permuted[:, :-1, :]], dim=1
+                        )
+                    else:
+                        # Inference: Use zeros as input (rely on hidden state)
+                        decoder_input = torch.zeros(
+                            batch_size, seq_len, input_size, device=x.device
+                        )
+
+                    # Single forward pass through RNN (no Python loop!)
+                    x, _ = rnn_layer(decoder_input, hidden_state)
+
+                    # Continue with remaining layers (activations, projections, etc.)
+                    processed_rnn = False
+                    for layer in self.net:
+                        if isinstance(layer, (nn.LSTM, nn.GRU, nn.RNN)):
+                            if not processed_rnn:
+                                processed_rnn = True
+                                continue  # Skip - already processed above
+                        elif isinstance(
+                            layer, (nn.ReLU, nn.GELU, nn.LeakyReLU, nn.Sigmoid, nn.Tanh)
+                        ):
+                            # Apply activation
+                            x = layer(x)
+                        else:
+                            # Apply other layers (Linear, etc.)
+                            x = layer(x)
+
+                    # Permute from (batch, seq_len, features) to (batch, features, seq_len)
+                    # to match the original input shape
+                    if len(x.shape) == 3:
+                        x = x.permute(0, 2, 1)
+
+                    return x
+                else:
+                    # Fallback: no RNN layer found (shouldn't happen)
+                    x = x.unsqueeze(1).repeat(1, seq_len, 1)
 
             # Process through layers, handling recurrent layer outputs
             prev_was_recurrent = False
