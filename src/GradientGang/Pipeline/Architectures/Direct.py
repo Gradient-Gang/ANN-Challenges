@@ -23,8 +23,8 @@ class Direct(L.LightningModule):
             "FeedForwardParams": dict,
             "OutputDim": int,
             "LearningRate": float,
-            "Patience": int,
             "RegularizationWeight": float,
+            # Note: Patience is optional - only needed for ReduceLROnPlateau scheduler
         },
     )
 
@@ -195,28 +195,74 @@ class Direct(L.LightningModule):
     def configure_optimizers(self):
         """
         Configure optimizers and learning rate schedulers.
+        Supports multiple scheduler types: ReduceLROnPlateau, CosineAnnealing, CosineAnnealingWarmRestarts.
         Returns:
             dict: Dictionary containing optimizer and scheduler configurations.
         """
 
         # Extract optimizer parameters from self.params
         learning_rate = self.params.get("LearningRate", 0.001)
-        patience = self.params.get("Patience", 5)
         regularization_weight = self.params.get("RegularizationWeight", 0.0)
 
         optimizer = torch.optim.AdamW(
             self.parameters(), lr=learning_rate, weight_decay=regularization_weight
         )
-        # Using a scheduler is optional but can be helpful.
-        # The scheduler reduces the LR if the validation performance hasn't improved for the last N epochs
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=patience, min_lr=5e-5
-        )
-        monitor = f"{self.schedulerMonitoringTarget}_loss"
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": monitor},
-        }
+
+        # Get scheduler type (default to ReduceLROnPlateau for backward compatibility)
+        scheduler_type = self.params.get("SchedulerType", "ReduceLROnPlateau")
+
+        if scheduler_type == "ReduceLROnPlateau":
+            # Reactive scheduler: reduces LR when metric plateaus
+            patience = self.params.get("Patience", 5)
+            factor = self.params.get("SchedulerFactor", 0.2)
+            min_lr = self.params.get("SchedulerMinLR", 5e-5)
+
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=factor, patience=patience, min_lr=min_lr
+            )
+            monitor = f"{self.schedulerMonitoringTarget}_loss"
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler, "monitor": monitor},
+            }
+
+        elif scheduler_type == "CosineAnnealing":
+            # Smooth cosine decay over T_max epochs
+            T_max = self.params.get("T_max", 100)
+            eta_min = self.params.get("eta_min", 1e-6)
+
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=T_max, eta_min=eta_min
+            )
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler, "interval": "epoch"},
+            }
+
+        elif scheduler_type == "CosineAnnealingWarmRestarts":
+            # Cosine annealing with periodic restarts
+            T_0 = self.params.get("T_0", 10)
+            T_mult = self.params.get("T_mult", 2)
+            eta_min = self.params.get("eta_min", 1e-6)
+
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min
+            )
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler, "interval": "epoch"},
+            }
+
+        elif scheduler_type == "None" or scheduler_type is None:
+            # No scheduler - constant learning rate
+            return {"optimizer": optimizer}
+
+        else:
+            raise ValueError(
+                f"Unknown scheduler type: {scheduler_type}. "
+                f"Supported types: ReduceLROnPlateau, CosineAnnealing, "
+                f"CosineAnnealingWarmRestarts, None"
+            )
 
     def training_step(self, batch, batch_idx):
         """
