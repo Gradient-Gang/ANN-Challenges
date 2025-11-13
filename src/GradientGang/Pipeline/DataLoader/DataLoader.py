@@ -64,7 +64,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 ).tolist()
 
             # Pivot and stack time series data
-            timeSeriesDF = data_df[[primaryKeyColumn, "time"] + timeSeriesColumns]
+            timeSeriesDF = data_df[[
+                primaryKeyColumn, "time"] + timeSeriesColumns]
             # Pivot each feature and reindex to ensure the same sample order as grouped
             timeSeries_list = []
             for feat in timeSeriesColumns:
@@ -75,7 +76,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
             timeSeries = np.stack(timeSeries_list, axis=-1)
             timeSeries = torch.tensor(timeSeries, dtype=torch.float32)
-            timeSeries = timeSeries.permute(0, 2, 1)  # (samples, features, time)
+            timeSeries = timeSeries.permute(
+                0, 2, 1)  # (samples, features, time)
 
         # No time series data
         else:
@@ -228,6 +230,10 @@ class DataModule(L.LightningDataModule):
             "label_mapping", {"no_pain": 0, "low_pain": 1, "high_pain": 2}
         )
 
+        # Random seed for train/val split (can be overridden via params)
+        split_seed = params.get("split_seed", 42)
+        self.trainValGenerator = torch.Generator().manual_seed(split_seed)
+
     def setup(self, stage: str | None = None, includeTestInTrain: bool = True):
         """
         Setup datasets for training, validation, and testing.
@@ -241,7 +247,8 @@ class DataModule(L.LightningDataModule):
             # Load labeled training dataset and unlabeled test dataset separately
             labeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
-                labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
+                labelsPath=os.path.join(
+                    self.data_dir, self.train_file_name_labels),
                 labelMapping=list(self.label_mapping.keys()),
                 globalColumns=self.globalFeaturesColumns,
                 primaryKeyColumn=self.primaryKeyColumn,
@@ -257,7 +264,7 @@ class DataModule(L.LightningDataModule):
             self.train_labeled, self.val_dataset = random_split(
                 labeled_dataset,
                 [train_size, val_size],
-                generator=torch.Generator().manual_seed(42),  # For reproducibility
+                generator=self.trainValGenerator
             )
 
             if includeTestInTrain:
@@ -301,7 +308,8 @@ class DataModule(L.LightningDataModule):
 
         # Check if training dataset is initialized
         if self.train_dataset is None:
-            raise RuntimeError("Training dataset not initialized. Call setup() first.")
+            raise RuntimeError(
+                "Training dataset not initialized. Call setup() first.")
 
         # Return the DataLoader for training dataset
         return TorchDataLoader(
@@ -341,7 +349,8 @@ class DataModule(L.LightningDataModule):
 
         # Check if test dataset is initialized
         if self.test_dataset is None:
-            raise RuntimeError("Test dataset not initialized. Call setup() first.")
+            raise RuntimeError(
+                "Test dataset not initialized. Call setup() first.")
 
         # Return the DataLoader for test dataset
         return TorchDataLoader(
