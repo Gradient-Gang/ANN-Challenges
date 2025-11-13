@@ -39,16 +39,6 @@ dependencies = [
 [tool.poetry]
 packages = [{ include = "GradientGang", from = "src" }]
 
-[[tool.poetry.source]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
-priority = "explicit"
-
-
-[tool.poetry.dependencies]
-torch = { source = "pytorch-cu124" }
-torchvision = { source = "pytorch-cu124" }
-
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
