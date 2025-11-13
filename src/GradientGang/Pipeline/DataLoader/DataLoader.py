@@ -28,6 +28,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
         use_windowing: bool = False,
         window_size: int = 160,
         stride: int = 160,
+        drop_column_list: list[str] = [],
     ) -> "TimeSeriesAndGlobalDataset":
         """
         Create a TimeSeriesAndGlobalDataset from CSV files.
@@ -42,12 +43,21 @@ class TimeSeriesAndGlobalDataset(Dataset):
             use_windowing (bool): Whether to apply windowing augmentation.
             window_size (int): Size of each window (default: 160, full sequence).
             stride (int): Stride for sliding window (default: 160, no overlap).
+            drop_column_list (list[str]): List of column names to drop before building the dataloader.
         Returns:
             TimeSeriesAndGlobalDataset: The constructed dataset.
         """
 
         # Load data from CSV and check for required columns
         data_df = pd.read_csv(dataPath)
+
+        # Drop specified columns if any
+        if drop_column_list:
+            columns_to_drop = [
+                col for col in drop_column_list if col in data_df.columns
+            ]
+            if columns_to_drop:
+                data_df = data_df.drop(columns=columns_to_drop)
 
         # Flag to track if global features were loaded from separate file
         global_features_loaded_separately = False
@@ -56,6 +66,19 @@ class TimeSeriesAndGlobalDataset(Dataset):
         if globalFeaturesPath is not None:
             try:
                 global_features_df = pd.read_csv(globalFeaturesPath)
+
+                # Drop specified columns from global features if any
+                if drop_column_list:
+                    columns_to_drop = [
+                        col
+                        for col in drop_column_list
+                        if col in global_features_df.columns
+                    ]
+                    if columns_to_drop:
+                        global_features_df = global_features_df.drop(
+                            columns=columns_to_drop
+                        )
+
                 # Extract sample indices in order from time series data
                 sample_ids = data_df[primaryKeyColumn].unique()
                 # Reindex global features to match time series sample order
@@ -356,11 +379,18 @@ class DataModule(L.LightningDataModule):
         self.window_size = params.get("window_size", 160)
         self.stride = params.get("stride", 160)
 
-    def setup(self, stage: str | None = None, includeTestInTrain: bool = True):
+    def setup(
+        self,
+        stage: str | None = None,
+        includeTestInTrain: bool = True,
+        drop_column_list: list = [],
+    ):
         """
         Setup datasets for training, validation, and testing.
         Args:
             stage (str | None): Stage of setup ("fit", "test", or None for all).
+            includeTestInTrain (bool): Whether to include unlabeled test data in training set.
+            drop_column_list (list): List of column names to drop before building the dataloader.
         """
 
         # Load and split datasets based on the stage
@@ -385,6 +415,7 @@ class DataModule(L.LightningDataModule):
                 use_windowing=self.use_windowing,
                 window_size=self.window_size,
                 stride=self.stride,
+                drop_column_list=drop_column_list,
             )
 
             self.updateDataInfo(labeled_dataset)
@@ -422,6 +453,7 @@ class DataModule(L.LightningDataModule):
                     use_windowing=self.use_windowing,
                     window_size=self.window_size,
                     stride=self.stride,
+                    drop_column_list=drop_column_list,
                 )
 
                 # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
@@ -450,6 +482,7 @@ class DataModule(L.LightningDataModule):
                 use_windowing=self.use_windowing,
                 window_size=self.window_size,
                 stride=self.stride,
+                drop_column_list=drop_column_list,
             )
 
     def updateDataInfo(self, dataset: TimeSeriesAndGlobalDataset) -> dict:
