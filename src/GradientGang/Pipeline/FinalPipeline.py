@@ -10,15 +10,15 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
+import time
 
 warnings.filterwarnings('ignore')
 
 from GradientGang.Pipeline.DataLoader.DataLoader import DataModule
 from GradientGang.Pipeline.Architectures.Direct import Direct
 from GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAutoencoder
-from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
-
-
+from GradientGang.Pipeline.SubmissionGenerator.WindowedSubmissionGenerator import WindowedSubmissionGenerator
+from GradientGang.Pipeline.Utils.EnsembleModels import EnsembleModel
 class FinalPipeline:
     """
     End-to-end pipeline for neural network hyperparameter optimization using Optuna.
@@ -55,6 +55,7 @@ class FinalPipeline:
         self.storage = None
         self.dataloader = None
         self.study = None
+        self.best_model=None
 
         # Initialize project namee
         self.project_name = params.get("project_name", None)
@@ -65,6 +66,11 @@ class FinalPipeline:
         self.data_params = params.get("data_params", None)
         if not self.data_params:
             raise ValueError("Data parameters must be provided in parameters.")
+        
+        #Initialize submission folder
+        self.submission_folder = params.get("submission_path", None)
+        if not self.submission_folder:
+            raise ValueError("Submission path must be provided in parameters.")
 
         # Initialize database connection
         self.database_path = params.get("database_path", None)
@@ -1127,9 +1133,15 @@ class FinalPipeline:
         std_f1 = np.std(fold_scores)
         
         # Store detailed results for later analysis
-        trial.set_user_attr("fold_scores", fold_scores)  # Individual fold scores
-        trial.set_user_attr("mean_f1", mean_f1)          # Mean across folds
-        trial.set_user_attr("std_f1", std_f1)            # Standard deviation (stability measure)
+        # Convert to compact string format to avoid database size limits
+        try:
+            fold_scores_str = ",".join([f"{score:.6f}" for score in fold_scores])
+            trial.set_user_attr("fold_scores", fold_scores_str)  # Individual fold scores as CSV string
+            trial.set_user_attr("mean_f1", float(mean_f1))       # Mean across folds
+            trial.set_user_attr("std_f1", float(std_f1))         # Standard deviation (stability measure)
+        except Exception as e:
+            # If database fails, log warning but continue (metrics are still returned)
+            print(f"⚠️ Warning: Could not store user attributes in database: {e}")
         
         # Report score to Optuna for pruning decisions
         trial.report(mean_f1, step=0)
@@ -1141,3 +1153,39 @@ class FinalPipeline:
         # Return mean F1 as the optimization objective
         return mean_f1
 
+    #submissions
+    def create_submission(self):
+        """
+        Create submission file for test dataset predictions.
+        
+        This function loads the best trained model, performs inference on the
+        test dataset, and generates a submission CSV file in the required format.
+        
+        Steps:
+        1. Load the best model checkpoint from training.
+        2. Prepare the test dataset using the same preprocessing as training.
+        3. Perform inference to get predicted class labels.
+        4. Format predictions into a DataFrame with required columns.
+        5. Save the DataFrame as 'submission.csv'.
+        
+        Note:
+            - Ensure that the model architecture and preprocessing match those used during training.
+            - The submission file should contain columns: 'id', 'predicted_label'.
+        """
+
+        #TODO: finish it
+
+        ensemble_model = EnsembleModel()
+
+        submitter = WindowedSubmissionGenerator(
+            model = self.best_model,
+            dataloader = self.dataloader
+        )
+
+        time_now = time.now().strftime("%Y%m%d_%H%M%S")
+        path = self.submission_folder + "/submission_{}.csv".format(time_now)
+        submitter.generate_submission(
+            output_path = path
+        )
+
+        pass 
