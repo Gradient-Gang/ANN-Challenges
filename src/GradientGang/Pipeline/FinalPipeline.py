@@ -17,20 +17,49 @@ from GradientGang.Pipeline.Architectures.LightningAutoencoder import LightningAu
 from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
 
 
-class FinalPipeline:    
+class FinalPipeline:
+    """
+    End-to-end pipeline for neural network hyperparameter optimization using Optuna.
+    """
 
-    def __init__(self,params: dict):
+    def __init__(self, params: dict):
+        """
+        Initialize the FinalPipeline with configuration parameters.
+        
+        Args:
+            params (dict): Configuration dictionary containing:
+                - project_name (str): Name for the optimization project
+                - data_params (dict): Data loading parameters including:
+                    - data_dir (str): Directory containing data files
+                    - train_file_name (str): Training data filename
+                    - train_file_name_labels (str): Training labels filename
+                    - test_file_name (str): Test data filename
+                    - train_global_features_file (str): Global features for training
+                    - test_global_features_file (str): Global features for testing
+                    - batch_size (int): Batch size for training
+                    - num_workers (int): Number of data loading workers
+                    - val_split (float): Validation split ratio
+                    - shuffle (bool): Whether to shuffle data
+                    - use_kfold (bool): Whether to use K-fold cross-validation
+                    - n_folds (int): Number of folds for cross-validation
+                - database_path (str): Path to .env file with database URL
+                - study_name (str): Name for the Optuna study
+        
+        Raises:
+            ValueError: If required parameters (project_name, data_params, 
+                       database_path, study_name) are missing
+        """
         self.params = params
         self.storage = None
-        self.dataloader  =None
+        self.dataloader = None
         self.study = None
 
-        #initialize project name
+        # Initialize project namee
         self.project_name = params.get("project_name", None)
         if not self.project_name:
             raise ValueError("Project name must be provided in parameters.")
 
-        #Initialize dataparams
+        # Initialize data parameters
         self.data_params = params.get("data_params", None)
         if not self.data_params:
             raise ValueError("Data parameters must be provided in parameters.")
@@ -50,25 +79,44 @@ class FinalPipeline:
         print("✓ Study initialized successfully!")
         print("✓ FinalPipeline initialized successfully!")
 
+    #DB management
     def load_database(self):
+        """
+        Load database configuration from environment file.
+        
+        Reads the DATABASE_URL from the .env file specified in database_path.
+        This URL is used for persistent storage of Optuna study results.
+        """
         dotenv.load_dotenv(dotenv_path=self.database_path)
         self.storage = os.getenv("DATABASE_URL")
         print(f"Storage: {self.storage[:21]}..." if self.storage else "⚠️ No database URL found")
         print("✓ Database configuration loaded")
-        pass
 
     def create_study(self):
+        """
+        Create or load an Optuna study for hyperparameter optimization.
+        
+        Configures an Optuna study with:
+        - Direction: Maximize (optimizing for F1 score)
+        - Sampler: TPESampler with fixed seed for reproducibility
+        - Pruner: MedianPruner for early stopping of unpromising trials
+        - Storage: PostgreSQL database for persistent results
+        - Resume capability: Loads existing study if available
+        
+        The study name is constructed from project_name + study_name to ensure
+        uniqueness across different experiments.
+        """
         self.study = optuna.create_study(
             direction='maximize',  # Maximize F1 score
             sampler=optuna.samplers.TPESampler(seed=42),
             pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=5,
-                n_warmup_steps=5,
-                interval_steps=1
+                n_startup_trials=5,  # Number of trials before pruning starts
+                n_warmup_steps=5,     # Steps to wait before checking for pruning
+                interval_steps=1      # Check pruning at every step
             ),
-            study_name = self.study_name,
-            storage = self.storage,
-            load_if_exists = True  # Resume from existing study if available
+            study_name=self.project_name + self.study_name,
+            storage=self.storage,
+            load_if_exists=True  # Resume from existing study if available
         )
 
         print("✓ Study created/loaded successfully!")
@@ -78,7 +126,24 @@ class FinalPipeline:
         print(f"Storage: {'Database' if self.storage else 'In-memory'}")
         print(f"Total trials: {len(self.study.trials)}")
 
+    #optimizer
     def optuna_optimize(self, n_trials: int = 500):
+        """
+        Run Optuna hyperparameter optimization with K-fold cross-validation.
+        
+        This method starts the optimization process, running the specified number
+        of trials. Each trial:
+        1. Suggests hyperparameters (architecture, learning rate, etc.)
+        2. Trains models using K-fold cross-validation
+        3. Reports mean F1 score across folds
+        4. May be pruned if performance is poor
+        
+        Args:
+            n_trials (int, optional): Number of optimization trials to run.
+        
+        Example:
+            >>> pipeline.optuna_optimize(n_trials=100)
+        """
         print(f"Starting optimization ...")
         print("This may take a while depending on your hardware.")
         print("-" * 60)
@@ -96,9 +161,36 @@ class FinalPipeline:
         for key, value in self.study.best_params.items():
             print(f"  {key}: {value}")
 
-    ##setup function
-    def setUpEncoder(self, trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
-        """Setup the encoder architecture - supports Recurrent, Conv1d, and MultiScaleCNN"""
+    # Architecture Setup Methods
+    def setUpEncoder(self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict):
+        """
+        Configure encoder architecture based on Optuna trial suggestions.
+        
+        This method sets up both:
+        1. Global feature encoder (feedforward layers for tabular features)
+        2. Time series encoder (Recurrent/Conv1d/MultiScaleCNN for sequential data)
+        
+        Supported time series encoder types:
+        - Recurrent: LSTM/GRU with configurable layers, hidden dimensions, bidirectionality
+        - Conv1d: 1D convolutional layers with pooling for sequence processing
+        - MultiScaleCNN: Inception-style multi-scale convolutions for multi-resolution features
+        
+        Args:
+            trial (optuna.Trial): Optuna trial object for hyperparameter suggestions
+            architectureParameters (dict): Dictionary to store architecture configuration
+            datasetInfo (dict): Dataset metadata containing:
+                - globalFeaturesShape: Shape of global/tabular features
+                - timeSeriesShape: Shape of time series data (channels, length)
+        
+        Returns:
+            dict: Updated architectureParameters with added keys:
+                - GlobalFFEncoderParams: Configuration for global feature encoder
+                - EncoderParams: Configuration for time series encoder
+        
+        Note:
+            The encoder output is flattened and will be concatenated with global
+            feature embeddings before being passed to the feedforward head.
+        """
         # First setup global feature encoder
         globalInputDim = datasetInfo["globalFeaturesShape"][0]
         globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 128)
@@ -291,8 +383,34 @@ class FinalPipeline:
         architectureParameters["EncoderParams"] = timeSeriesEncoderParams
         return architectureParameters
 
-    def setUpFeedForwardHead(self, trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
-        """Setup the feedforward head for classification"""
+    def setUpFeedForwardHead(self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict):
+        """
+        Configure the feedforward classification head.
+        
+        The feedforward head takes the concatenated output from both encoders
+        (time series + global features) and produces class predictions.
+        
+        The architecture consists of:
+        - Multiple fully connected layers with configurable dimensions
+        - Dropout for regularization
+        - Activation functions (ReLU/LeakyReLU/GELU)
+        - Final output layer (added by Direct/Autoencoder class)
+        
+        Args:
+            trial (optuna.Trial): Optuna trial object for hyperparameter suggestions
+            architectureParameters (dict): Architecture configuration containing:
+                - GlobalFFEncoderParams: Global encoder config (to get embedding dim)
+                - EncoderParams: Time series encoder config (to calculate output size)
+            datasetInfo (dict): Dataset metadata (may be used for dimension calculations)
+        
+        Returns:
+            dict: Updated architectureParameters with added key:
+                - FeedForwardParams: Configuration for classification head
+        
+        Note:
+            The final output layer (num_classes) is automatically added by the
+            Direct or LightningAutoencoder class based on OutputDim parameter.
+        """
         globalEmbeddingDim = architectureParameters["GlobalFFEncoderParams"]["layer_type"][-1]["params"]["out_features"]
         
         # Calculate encoder output size based on architecture type
@@ -378,8 +496,44 @@ class FinalPipeline:
         architectureParameters["FeedForwardParams"] = feedForwardParams
         return architectureParameters
 
-    def setUpDecoder(self, trial:optuna.Trial, architectureParameters:dict, datasetInfo:dict):
-        """Setup the decoder for autoencoder architecture (mirrors the encoder)"""
+    def setUpDecoder(self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict):
+        """
+        Configure decoder architecture for autoencoder models.
+        
+        The decoder mirrors the encoder architecture to reconstruct input data.
+        This is only used when MacroArchitecture="Autoencoder".
+        
+        Decoder architectures by encoder type:
+        - Recurrent: Uses teacher forcing during training, autoregressive during inference
+          * Encoder hidden state becomes decoder's initial hidden state
+          * Reconstructs original time series sequence
+        - Conv1d: Uses transposed convolutions for upsampling
+          * Symmetrically reverses encoder convolutions
+          * Includes adaptive pooling for exact length matching
+        - MultiScaleCNN: Uses transposed convolutions to reverse multi-scale features
+          * Mirrors multi-scale architecture in reverse
+          * Reconstructs to original input dimensions
+        
+        Also sets up global feature decoder (mirrors global encoder).
+        
+        Args:
+            trial (optuna.Trial): Optuna trial object for hyperparameter suggestions
+            architectureParameters (dict): Architecture configuration containing:
+                - EncoderParams: Time series encoder config to mirror
+                - GlobalFFEncoderParams: Global encoder config to mirror
+            datasetInfo (dict): Dataset metadata containing:
+                - timeSeriesShape: Target reconstruction shape (channels, length)
+                - globalFeaturesShape: Target global features shape
+        
+        Returns:
+            dict: Updated architectureParameters with added keys:
+                - DecoderParams: Configuration for time series decoder
+                - GlobalFFDecoderParams: Configuration for global feature decoder
+        
+        Note:
+            For RNN decoders, the architecture supports teacher forcing during
+            training for stable learning, and autoregressive generation during inference.
+        """
         encoderParams = architectureParameters["EncoderParams"]
         firstLayer = encoderParams["layer_type"][0]
         
@@ -666,14 +820,32 @@ class FinalPipeline:
 
     def apply_he_initialization(self, model, activation_type="ReLU"):
         """
-        Apply He (Kaiming) initialization to all Linear and Conv1d layers in the model.
+        Apply He (Kaiming) initialization to model weights.
         
-        He initialization is optimal for ReLU-like activations (ReLU, LeakyReLU).
-        For GELU, it still works well as a general initialization strategy.
+        He initialization sets initial weights based on the size of the previous layer
+        to maintain variance across layers. This is especially important for deep
+        networks and helps with gradient flow during training.
+        
+        Applied to:
+        - Linear layers: Uses kaiming_normal_ with appropriate nonlinearity
+        - Conv1d layers: Uses kaiming_normal_ with appropriate nonlinearity
+        - RNN layers (LSTM/GRU): 
+          * Input-hidden weights: He initialization
+          * Hidden-hidden weights: Orthogonal initialization (better for recurrence)
+          * Biases: Small constant (0.01)
+          * LSTM forget gate bias: Initialized to 1.0 for better gradient flow
         
         Args:
-            model: PyTorch model to initialize
-            activation_type: Type of activation function ("ReLU", "LeakyReLU", "GELU")
+            model (torch.nn.Module): PyTorch model to initialize
+            activation_type (str): Type of activation function used in the model.
+                                  Options: "ReLU", "LeakyReLU", "GELU"
+                                  Affects the initialization mode.
+        
+        Note:
+            - He initialization is optimal for ReLU-like activations
+            - GELU also benefits from this initialization strategy
+            - Biases are initialized to small positive values (0.01)
+            - LSTM forget gates use bias=1.0 to prevent early gradient vanishing
         """
         for name, module in model.named_modules():
             if isinstance(module, torch.nn.Linear):
@@ -720,20 +892,51 @@ class FinalPipeline:
     def objective_kfold(self, trial: optuna.trial.Trial) -> float:
         """
         K-Fold Cross-Validation objective function for Optuna optimization.
-        Returns mean validation F1 score across all folds.
+        
+        This is the core optimization objective that:
+        1. Suggests hyperparameters (architecture, learning rate, regularization, etc.)
+        2. Creates a data loader with optional windowing
+        3. Builds encoder, decoder (if autoencoder), and feedforward head
+        4. Trains models on each fold with early stopping and checkpointing
+        5. Returns mean F1 score across all folds
+        
+        Hyperparameters optimized:
+        - MacroArchitecture: Direct classification vs Autoencoder
+        - Architecture type: Recurrent/Conv1d/MultiScaleCNN
+        - Architecture-specific parameters (hidden dims, layers, etc.)
+        - Windowing: window_size, stride
+        - Learning rate and regularization
+        - Learning rate scheduler type and parameters
+        - Dropout rates and activation functions
         
         Args:
-            trial: Optuna trial object
-            n_folds: Number of folds for cross-validation (default: 5)
+            trial (optuna.trial.Trial): Optuna trial object for suggesting hyperparameters
         
         Returns:
-            Mean validation F1 score across all folds
-        """
+            float: Mean validation F1 score across all K folds
         
-        # Suggest macro architecture
+        Raises:
+            optuna.TrialPruned: If any fold fails or if the trial should be pruned
+                               based on MedianPruner criteria
+        
+        Side Effects:
+            - Creates DataModule and loads data
+            - Trains multiple models (one per fold)
+            - Saves checkpoints to disk
+            - Stores fold_scores, mean_f1, std_f1 as trial user attributes
+            - Prints fold progress (suppressed via enable_progress_bar=False)
+        
+        Note:
+            For autoencoder architecture, test data is included in training for
+            unsupervised reconstruction learning.
+        """
+        # ==================== STEP 1: Suggest Macro Architecture ====================
+        # Choose between direct classification or autoencoder-based approach
         macroArchitecture = trial.suggest_categorical("MacroArchitecture", ["Direct", "Autoencoder"])
         
-        # Suggest windowing parameters
+        # ==================== STEP 2: Configure Data Windowing ====================
+        # Windowing splits time series into smaller overlapping segments
+        # This can help the model learn from more samples and capture local patterns
         use_windowing = trial.suggest_categorical("use_windowing", [True, False])
         
         if use_windowing:
@@ -747,10 +950,12 @@ class FinalPipeline:
             window_size = 160
             stride = 160
         
-        # Setup data with K-Fold enabled and windowing parameters
+        # ==================== STEP 3: Setup Data Loading ====================
+        # For autoencoders, include test data in training (unsupervised reconstruction)
+        # For direct classification, only use labeled training data
         includeTestInTrain = macroArchitecture == "Autoencoder"
         
-        # Create K-Fold data loader with windowing
+        # Create K-Fold data loader with windowing parameters
         kfold_data_params = self.data_params.copy()
         kfold_data_params['use_windowing'] = use_windowing
         kfold_data_params['window_size'] = window_size
@@ -761,70 +966,77 @@ class FinalPipeline:
         kfold_dataLoader.setup(stage='fit', includeTestInTrain=includeTestInTrain)
         datasetInfo = kfold_dataLoader.getDatasetInfo()
         
-        # Build architecture parameters (same for all folds)
+        # ==================== STEP 4: Build Architecture Configuration ====================
+        # Architecture parameters will be the same across all folds in this trial
         archParams = {}
         
-        # Setup encoders
+        # Setup encoders (both time series and global feature encoders)
         archParams = self.setUpEncoder(trial, archParams, datasetInfo)
         
-        # Setup feedforward head
+        # Setup feedforward classification head
         archParams = self.setUpFeedForwardHead(trial, archParams, datasetInfo)
         
-        # If autoencoder, setup decoder
+        # For autoencoder: add decoder and reconstruction loss weight
         if macroArchitecture == "Autoencoder":
             archParams = self.setUpDecoder(trial, archParams, datasetInfo)
             archParams["ReconstructionLossWeight"] = trial.suggest_float("ReconstructionLossWeight", 0.1, 0.9)
         
-        # Add common parameters
-        archParams["OutputDim"] = 3
+        # ==================== STEP 5: Configure Training Parameters ====================
+        # Common parameters for all architectures
+        archParams["OutputDim"] = 3  # Number of classes (pain levels)
         archParams["LearningRate"] = trial.suggest_float("LearningRate", 1e-5, 1e-2, log=True)
         archParams["RegularizationWeight"] = trial.suggest_float("RegularizationWeight", 1e-3, 1e1, log=True)
         archParams["ClassWeightsPath"] = "../dataset/PirateProcessed/class_weights.yaml"
         
-        # Training parameters
+        # Maximum training epochs (early stopping may terminate earlier)
         max_epochs = 100
         
-        # Learning Rate Scheduler Configuration
+        # ==================== STEP 6: Configure Learning Rate Scheduler ====================
+        # Different schedulers for adaptive learning rate adjustment
         scheduler_type = trial.suggest_categorical("SchedulerType", ["ReduceLROnPlateau", "CosineAnnealing", "CosineAnnealingWarmRestarts"])
         archParams["SchedulerType"] = scheduler_type
         
         if scheduler_type == "ReduceLROnPlateau":
-            archParams["Patience"] = trial.suggest_int("SchedulerPatience", 3, 10)  # Patience for LR reduction
+            # Reduce LR when validation metric plateaus
+            archParams["Patience"] = trial.suggest_int("SchedulerPatience", 3, 10)
             archParams["SchedulerFactor"] = trial.suggest_float("SchedulerFactor", 0.1, 0.5)
             archParams["SchedulerMinLR"] = trial.suggest_float("SchedulerMinLR", 1e-6, 1e-4, log=True)
         elif scheduler_type == "CosineAnnealing":
-            # Set T_max to max_epochs so the cosine cycle completes exactly at the end of training
-            archParams["T_max"] = max_epochs
+            # Cosine annealing: smooth LR decay following cosine curve
+            archParams["T_max"] = max_epochs  # Full cycle matches training duration
             archParams["eta_min"] = trial.suggest_float("eta_min", 1e-7, 1e-5, log=True)
         elif scheduler_type == "CosineAnnealingWarmRestarts":
-            archParams["T_0"] = trial.suggest_int("T_0", 5, 20)
-            archParams["T_mult"] = trial.suggest_int("T_mult", 1, 3)
+            # Cosine annealing with periodic restarts (helps escape local minima)
+            archParams["T_0"] = trial.suggest_int("T_0", 5, 20)  # Initial restart period
+            archParams["T_mult"] = trial.suggest_int("T_mult", 1, 3)  # Period multiplier after restart
             archParams["eta_min"] = trial.suggest_float("eta_min", 1e-7, 1e-5, log=True)
         
-        # Early stopping patience (separate from scheduler patience)
+        # Early stopping: stops training if no improvement after patience epochs
         early_stopping_patience = trial.suggest_int("EarlyStoppingPatience", 10, 20)
         
-        # Store fold scores
+        # ==================== STEP 7: K-Fold Cross-Validation Training ====================
+        # Track validation scores across all folds
         fold_scores = []
         
-        # Train on each fold
+        # Train a separate model on each fold to get robust performance estimate
         for fold_idx in range(n_folds):
-            # Setup this fold
+            # Prepare data for this specific fold (different train/val split)
             kfold_dataLoader.setup_fold(fold_idx, include_test_in_train=includeTestInTrain)
             trainLoader = kfold_dataLoader.train_dataloader()
             valLoader = kfold_dataLoader.val_dataloader()
             
-            # Create fresh model for this fold
+            # Create a fresh model instance for this fold (no weight sharing between folds)r this fold (no weight sharing between folds)
             if macroArchitecture == "Direct":
                 model = Direct(archParams)
             else:
                 model = LightningAutoencoder(archParams)
             
-            # Apply He initialization
+            # Apply He (Kaiming) initialization for better gradient flow
             ff_activation = archParams["FeedForwardParams"]["activation_function"]
             self.apply_he_initialization(model, activation_type=ff_activation)
             
-            # Add early stopping callback
+            # Configure callbacks for training
+            # Early stopping: stops training if validation F1 doesn't improve
             early_stopping_callback = EarlyStopping(
                 monitor='val_F1',
                 patience=early_stopping_patience,
@@ -832,6 +1044,7 @@ class FinalPipeline:
                 verbose=False
             )
             
+            # Model checkpointing: saves best model based on validation F1
             checkpoint_callback = ModelCheckpoint(
                 monitor='val_F1',
                 mode='max',
@@ -840,7 +1053,7 @@ class FinalPipeline:
                 verbose=False
             )
             
-            # Create trainer
+            # Create PyTorch Lightning trainer with configured callbacks
             trainer = Trainer(
                 max_epochs=max_epochs,
                 enable_progress_bar=False,
@@ -863,21 +1076,22 @@ class FinalPipeline:
                 #Prune the trial if any fold fails
                 raise optuna.TrialPruned() from e
         
-        # Calculate mean and std across folds
+        # ==================== STEP 8: Calculate Cross-Validation Metrics ====================
+        # Aggregate performance across all folds
         mean_f1 = np.mean(fold_scores)
         std_f1 = np.std(fold_scores)
         
-        # Store fold results as user attributes
-        trial.set_user_attr("fold_scores", fold_scores)
-        trial.set_user_attr("mean_f1", mean_f1)
-        trial.set_user_attr("std_f1", std_f1)
+        # Store detailed results for later analysis
+        trial.set_user_attr("fold_scores", fold_scores)  # Individual fold scores
+        trial.set_user_attr("mean_f1", mean_f1)          # Mean across folds
+        trial.set_user_attr("std_f1", std_f1)            # Standard deviation (stability measure)
         
-        # Report for pruning (use mean score)
+        # Report score to Optuna for pruning decisions
         trial.report(mean_f1, step=0)
         
-        # Handle pruning
+        # Check if this trial should be pruned (stopped early)
         if trial.should_prune():
             raise optuna.TrialPruned()
         
-        # Return mean F1 across folds
+        # Return mean F1 as the optimization objective
         return mean_f1
