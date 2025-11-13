@@ -297,28 +297,80 @@ class WindowedModelWrapper(L.LightningModule):
         return total_loss, sample_loss, window_loss
 
     def training_step(self, batch, batch_idx):
-        """Training step with sample-level metrics."""
+        """Training step that respects base model's loss computation."""
         (time_series, global_features), labels = batch
+        batch_size = time_series.shape[0]
 
-        # Forward pass
-        output = self.forward((time_series, global_features))
-
-        if isinstance(output, tuple):
-            sample_logits, window_logits = output
-        else:
-            sample_logits = output
-            window_logits = None
-
-        # Compute loss
-        total_loss, sample_loss, window_loss = self.compute_loss(
-            sample_logits, window_logits, labels
+        # Create windows and expand inputs for window-level processing
+        windows, num_windows = self.create_windows(time_series)
+        windows_flat = windows.view(-1, windows.shape[2], windows.shape[3])
+        global_features_expanded = (
+            global_features.unsqueeze(1)
+            .expand(-1, num_windows, -1)
+            .reshape(-1, global_features.shape[1])
         )
+        
+        # Expand labels for each window (each window should predict same class as sample)
+        labels_expanded = labels.unsqueeze(1).expand(-1, num_windows).reshape(-1)
+        
+        # Create batch for base model with windowed data
+        base_input = (windows_flat, global_features_expanded)
+        
+        # For autoencoders, manually compute losses to respect base model's logic
+        if hasattr(self.base_model, 'computeReconstructionLoss') and hasattr(self.base_model, 'computePredictionLoss'):
+            # This is a LightningAutoencoder - compute its losses manually
+            # Forward pass through base model
+            predictions, (reconstructed_timeSeries, reconstructed_globalFeatures) = self.base_model(base_input)
+            
+            # Compute reconstruction losses
+            reconstruction_loss_ts, reconstruction_loss_gf = self.base_model.computeReconstructionLoss(
+                windows_flat, global_features_expanded,
+                reconstructed_timeSeries, reconstructed_globalFeatures
+            )
+            reconstruction_loss = reconstruction_loss_ts + reconstruction_loss_gf
+            
+            # Compute prediction loss
+            prediction_loss = self.base_model.computePredictionLoss(labels_expanded, predictions)
+            
+            # Combined loss using base model's weighting
+            reconstruction_weight = self.base_model.reconstruction_loss_weight
+            base_loss = reconstruction_weight * reconstruction_loss + (1 - reconstruction_weight) * prediction_loss
+            
+            # Log base model's internal metrics
+            self.log("train_reconstruction_loss_timeSeries", reconstruction_loss_ts)
+            self.log("train_reconstruction_loss_globalFeatures", reconstruction_loss_gf)
+            self.log("train_reconstruction_loss", reconstruction_loss)
+            self.log("train_prediction_loss", prediction_loss)
+            
+        else:
+            # Not an autoencoder - just compute classification loss
+            output = self.base_model(base_input)
+            if isinstance(output, tuple):
+                window_logits_flat = output[0]
+            else:
+                window_logits_flat = output
+            
+            labeled_mask = labels_expanded >= 0
+            if not labeled_mask.any():
+                return None
+                
+            if hasattr(self.base_model, "class_weights"):
+                weight = self.base_model.class_weights
+            else:
+                weight = None
+                
+            base_loss = F.cross_entropy(
+                window_logits_flat[labeled_mask], 
+                labels_expanded[labeled_mask], 
+                weight=weight
+            )
+        
+        # Get aggregated sample-level predictions for metrics
+        sample_logits = self.forward((time_series, global_features))
+        if isinstance(sample_logits, tuple):
+            sample_logits = sample_logits[0]
 
-        # If no labeled samples, skip this batch
-        if total_loss is None:
-            return None
-
-        # Compute F1 on sample-level predictions (what matters!)
+        # Compute F1 on sample-level predictions (what matters for evaluation!)
         labeled_mask = labels >= 0
         if labeled_mask.any():
             sample_preds = sample_logits[labeled_mask].argmax(dim=-1)
@@ -327,47 +379,98 @@ class WindowedModelWrapper(L.LightningModule):
             f1 = 0.0
 
         # Logging
-        self.log("train_loss", total_loss, prog_bar=True)
-        self.log("train_sample_loss", sample_loss)
-        if self.window_loss_weight > 0:
-            self.log("train_window_loss", window_loss)
+        self.log("train_loss", base_loss, prog_bar=True)
         self.log("train_F1", f1, prog_bar=True)
 
-        return total_loss
+        return base_loss
 
     def validation_step(self, batch, batch_idx):
-        """Validation step with sample-level metrics."""
+        """Validation step that respects base model's loss computation."""
         (time_series, global_features), labels = batch
+        batch_size = time_series.shape[0]
 
-        # Forward pass (no window loss during validation)
-        sample_logits = self.forward((time_series, global_features))
-        if isinstance(sample_logits, tuple):
-            sample_logits = sample_logits[0]
-
-        # Compute loss
-        labeled_mask = labels >= 0
-        if labeled_mask.any():
+        # Create windows and expand inputs for window-level processing
+        windows, num_windows = self.create_windows(time_series)
+        windows_flat = windows.view(-1, windows.shape[2], windows.shape[3])
+        global_features_expanded = (
+            global_features.unsqueeze(1)
+            .expand(-1, num_windows, -1)
+            .reshape(-1, global_features.shape[1])
+        )
+        
+        # Expand labels for each window
+        labels_expanded = labels.unsqueeze(1).expand(-1, num_windows).reshape(-1)
+        
+        # Create batch for base model with windowed data
+        base_input = (windows_flat, global_features_expanded)
+        
+        # For autoencoders, manually compute losses to respect base model's logic
+        if hasattr(self.base_model, 'computeReconstructionLoss') and hasattr(self.base_model, 'computePredictionLoss'):
+            # This is a LightningAutoencoder - compute its losses manually
+            # Forward pass through base model
+            predictions, (reconstructed_timeSeries, reconstructed_globalFeatures) = self.base_model(base_input)
+            
+            # Compute reconstruction losses
+            reconstruction_loss_ts, reconstruction_loss_gf = self.base_model.computeReconstructionLoss(
+                windows_flat, global_features_expanded,
+                reconstructed_timeSeries, reconstructed_globalFeatures
+            )
+            reconstruction_loss = reconstruction_loss_ts + reconstruction_loss_gf
+            
+            # Compute prediction loss
+            prediction_loss = self.base_model.computePredictionLoss(labels_expanded, predictions)
+            
+            # Combined loss using base model's weighting
+            reconstruction_weight = self.base_model.reconstruction_loss_weight
+            base_loss = reconstruction_weight * reconstruction_loss + (1 - reconstruction_weight) * prediction_loss
+            
+            # Log base model's internal metrics
+            self.log("val_reconstruction_loss_timeSeries", reconstruction_loss_ts)
+            self.log("val_reconstruction_loss_globalFeatures", reconstruction_loss_gf)
+            self.log("val_reconstruction_loss", reconstruction_loss)
+            self.log("val_prediction_loss", prediction_loss)
+            
+        else:
+            # Not an autoencoder - just compute classification loss
+            output = self.base_model(base_input)
+            if isinstance(output, tuple):
+                window_logits_flat = output[0]
+            else:
+                window_logits_flat = output
+            
+            labeled_mask = labels_expanded >= 0
+            if not labeled_mask.any():
+                return None
+                
             if hasattr(self.base_model, "class_weights"):
                 weight = self.base_model.class_weights
             else:
                 weight = None
-
-            val_loss = F.cross_entropy(
-                sample_logits[labeled_mask], labels[labeled_mask], weight=weight
+                
+            base_loss = F.cross_entropy(
+                window_logits_flat[labeled_mask], 
+                labels_expanded[labeled_mask], 
+                weight=weight
             )
 
-            # Compute F1 on sample-level predictions
+        # Get aggregated sample-level predictions for metrics
+        sample_logits = self.forward((time_series, global_features))
+        if isinstance(sample_logits, tuple):
+            sample_logits = sample_logits[0]
+
+        # Compute F1 on sample-level predictions
+        labeled_mask = labels >= 0
+        if labeled_mask.any():
             sample_preds = sample_logits[labeled_mask].argmax(dim=-1)
             f1 = self.f1_metric(sample_preds, labels[labeled_mask])
         else:
-            # No labeled samples - return None to skip this batch
             return None
 
         # Logging
-        self.log("val_loss", val_loss, prog_bar=True)
+        self.log("val_loss", base_loss, prog_bar=True)
         self.log("val_F1", f1, prog_bar=True)
 
-        return val_loss
+        return base_loss
 
     def predict_step(self, batch, batch_idx):
         """Prediction step."""
