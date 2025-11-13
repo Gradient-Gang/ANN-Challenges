@@ -1,10 +1,16 @@
 import pytorch_lightning as L
 import torch
-from torch.utils.data import DataLoader as TorchDataLoader, Dataset, random_split
+from torch.utils.data import (
+    DataLoader as TorchDataLoader,
+    Dataset,
+    random_split,
+    Subset,
+)
 import pandas as pd
 import os
 import numpy as np
 from torch.utils.data.dataset import ConcatDataset
+from sklearn.model_selection import KFold
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 
 
@@ -36,10 +42,10 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
         # Load data from CSV and check for required columns
         data_df = pd.read_csv(dataPath)
-        
+
         # Flag to track if global features were loaded from separate file
         global_features_loaded_separately = False
-        
+
         # If separate global features file is provided, load and merge it
         if globalFeaturesPath is not None:
             try:
@@ -47,15 +53,25 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 # Extract sample indices in order from time series data
                 sample_ids = data_df[primaryKeyColumn].unique()
                 # Reindex global features to match time series sample order
-                global_features_df = global_features_df.set_index(primaryKeyColumn).reindex(sample_ids).reset_index()
+                global_features_df = (
+                    global_features_df.set_index(primaryKeyColumn)
+                    .reindex(sample_ids)
+                    .reset_index()
+                )
                 # All columns except sample_index are global features
-                globalColumns = [col for col in global_features_df.columns if col != primaryKeyColumn]
+                globalColumns = [
+                    col for col in global_features_df.columns if col != primaryKeyColumn
+                ]
                 globalFeatures = global_features_df[globalColumns].to_numpy()
                 globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
                 global_features_loaded_separately = True
             except Exception as e:
-                print(f"Warning: Could not load global features from {globalFeaturesPath}: {e}")
-                print("Falling back to extracting global features from time series data.")
+                print(
+                    f"Warning: Could not load global features from {globalFeaturesPath}: {e}"
+                )
+                print(
+                    "Falling back to extracting global features from time series data."
+                )
                 globalColumns = data_df.columns.intersection(globalColumns).tolist()
                 globalFeatures = (
                     data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
@@ -79,7 +95,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
             # Use groupby first to obtain one row per sample and capture the sample order
             grouped = data_df.groupby(primaryKeyColumn).first()
             sample_ids = grouped.index.to_numpy()
-            
+
             # Only extract global features from time series if they weren't loaded separately
             if not global_features_loaded_separately:
                 globalFeatures = grouped[globalColumns].to_numpy()
@@ -92,8 +108,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 ).tolist()
 
             # Pivot and stack time series data
-            timeSeriesDF = data_df[[
-                primaryKeyColumn, "time"] + timeSeriesColumns]
+            timeSeriesDF = data_df[[primaryKeyColumn, "time"] + timeSeriesColumns]
             # Pivot each feature and reindex to ensure the same sample order as grouped
             timeSeries_list = []
             for feat in timeSeriesColumns:
@@ -104,8 +119,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
             timeSeries = np.stack(timeSeries_list, axis=-1)
             timeSeries = torch.tensor(timeSeries, dtype=torch.float32)
-            timeSeries = timeSeries.permute(
-                0, 2, 1)  # (samples, features, time)
+            timeSeries = timeSeries.permute(0, 2, 1)  # (samples, features, time)
 
         # No time series data
         else:
@@ -246,7 +260,7 @@ class DataModule(L.LightningDataModule):
         )
         self.primaryKeyColumn = params.get("primaryKeyColumn", "sample_index")
         self.timeSeriesColumns = params.get("timeSeriesColumns", None)
-        
+
         # Optional: Separate file for global features
         self.train_global_features_file = params.get("train_global_features_file", None)
         self.test_global_features_file = params.get("test_global_features_file", None)
@@ -261,6 +275,12 @@ class DataModule(L.LightningDataModule):
         split_seed = params.get("split_seed", 42)
         self.trainValGenerator = torch.Generator().manual_seed(split_seed)
 
+        # K-Fold Cross-Validation settings
+        self.use_kfold = params.get("use_kfold", False)
+        self.n_folds = params.get("n_folds", 5)
+        self.current_fold = None
+        self._full_labeled_dataset = None  # Store full dataset for K-Fold splitting
+
     def setup(self, stage: str | None = None, includeTestInTrain: bool = True):
         """
         Setup datasets for training, validation, and testing.
@@ -274,13 +294,14 @@ class DataModule(L.LightningDataModule):
             # Determine global features file path
             train_global_path = None
             if self.train_global_features_file:
-                train_global_path = os.path.join(self.data_dir, self.train_global_features_file)
-            
+                train_global_path = os.path.join(
+                    self.data_dir, self.train_global_features_file
+                )
+
             # Load labeled training dataset and unlabeled test dataset separately
             labeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
-                labelsPath=os.path.join(
-                    self.data_dir, self.train_file_name_labels),
+                labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
                 labelMapping=list(self.label_mapping.keys()),
                 globalColumns=self.globalFeaturesColumns,
                 primaryKeyColumn=self.primaryKeyColumn,
@@ -290,22 +311,28 @@ class DataModule(L.LightningDataModule):
 
             self.updateDataInfo(labeled_dataset)
 
+            # Store full labeled dataset for K-Fold splitting
+            self._full_labeled_dataset = labeled_dataset
+
             # Split labeled dataset into train/val (do not mix unlabeled test into this split)
+            # If using K-Fold, this will be overridden by setup_fold()
             val_size = int(len(labeled_dataset) * self.val_split)
             train_size = len(labeled_dataset) - val_size
 
             self.train_labeled, self.val_dataset = random_split(
                 labeled_dataset,
                 [train_size, val_size],
-                generator=self.trainValGenerator
+                generator=self.trainValGenerator,
             )
 
             if includeTestInTrain:
                 # Determine test global features file path
                 test_global_path = None
                 if self.test_global_features_file:
-                    test_global_path = os.path.join(self.data_dir, self.test_global_features_file)
-                
+                    test_global_path = os.path.join(
+                        self.data_dir, self.test_global_features_file
+                    )
+
                 unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                     dataPath=os.path.join(self.data_dir, self.test_file_name),
                     labelsPath=None,
@@ -327,8 +354,10 @@ class DataModule(L.LightningDataModule):
             # Determine test global features file path
             test_global_path = None
             if self.test_global_features_file:
-                test_global_path = os.path.join(self.data_dir, self.test_global_features_file)
-            
+                test_global_path = os.path.join(
+                    self.data_dir, self.test_global_features_file
+                )
+
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
@@ -353,8 +382,7 @@ class DataModule(L.LightningDataModule):
 
         # Check if training dataset is initialized
         if self.train_dataset is None:
-            raise RuntimeError(
-                "Training dataset not initialized. Call setup() first.")
+            raise RuntimeError("Training dataset not initialized. Call setup() first.")
 
         # Return the DataLoader for training dataset
         return TorchDataLoader(
@@ -394,8 +422,7 @@ class DataModule(L.LightningDataModule):
 
         # Check if test dataset is initialized
         if self.test_dataset is None:
-            raise RuntimeError(
-                "Test dataset not initialized. Call setup() first.")
+            raise RuntimeError("Test dataset not initialized. Call setup() first.")
 
         # Return the DataLoader for test dataset
         return TorchDataLoader(
@@ -422,3 +449,72 @@ class DataModule(L.LightningDataModule):
         """
 
         return self.dataInfo
+
+    def setup_fold(self, fold_idx: int, include_test_in_train: bool = True):
+        """
+        Setup train/val datasets for a specific K-Fold split.
+
+        Args:
+            fold_idx (int): Index of the fold to setup (0 to n_folds-1).
+            include_test_in_train (bool): Whether to include unlabeled test data in training set.
+
+        Note:
+            Must call setup(stage='fit') before using this method to load the full dataset.
+        """
+        if not self.use_kfold:
+            raise RuntimeError("K-Fold is not enabled. Set use_kfold=True in params.")
+
+        if self._full_labeled_dataset is None:
+            raise RuntimeError(
+                "Full labeled dataset not loaded. Call setup(stage='fit') first."
+            )
+
+        if fold_idx < 0 or fold_idx >= self.n_folds:
+            raise ValueError(
+                f"fold_idx must be between 0 and {self.n_folds-1}, got {fold_idx}"
+            )
+
+        # Create K-Fold splitter
+        kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=42)
+
+        # Get train/val indices for this fold
+        all_indices = list(range(len(self._full_labeled_dataset)))
+        splits = list(kfold.split(all_indices))
+        train_indices, val_indices = splits[fold_idx]
+
+        # Create train and val subsets
+        self.train_labeled = Subset(self._full_labeled_dataset, train_indices)
+        self.val_dataset = Subset(self._full_labeled_dataset, val_indices)
+
+        # Optionally include unlabeled test data in training
+        if (
+            include_test_in_train
+            and hasattr(self, "test_dataset")
+            and self.test_dataset is not None
+        ):
+            self.train_dataset = ConcatDataset([self.train_labeled, self.test_dataset])
+        else:
+            self.train_dataset = self.train_labeled
+
+        # Update current fold tracker
+        self.current_fold = fold_idx
+
+    def get_fold_info(self) -> dict:
+        """
+        Get information about the current K-Fold setup.
+
+        Returns:
+            dict: Dictionary containing K-Fold configuration and current fold index.
+        """
+        return {
+            "use_kfold": self.use_kfold,
+            "n_folds": self.n_folds,
+            "current_fold": self.current_fold,
+            "full_dataset_size": (
+                len(self._full_labeled_dataset) if self._full_labeled_dataset else None
+            ),
+            "train_size": (
+                len(self.train_labeled) if hasattr(self, "train_labeled") else None
+            ),
+            "val_size": len(self.val_dataset) if hasattr(self, "val_dataset") else None,
+        }
