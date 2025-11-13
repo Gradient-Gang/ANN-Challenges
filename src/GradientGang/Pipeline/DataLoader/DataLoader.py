@@ -25,6 +25,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
         timeSeriesColumns: list[str] | None = None,
         labelMapping: list[str] = ["no_pain", "low_pain", "high_pain"],
         globalFeaturesPath: str | None = None,
+        drop_column_list: list[str] = [],
     ) -> "TimeSeriesAndGlobalDataset":
         """
         Create a TimeSeriesAndGlobalDataset from CSV files.
@@ -36,12 +37,19 @@ class TimeSeriesAndGlobalDataset(Dataset):
             timeSeriesColumns (list[str] | None): List of column names for time series features
             labelMapping (list[str]): List of possible labels for mapping string labels to integers.
             globalFeaturesPath (str | None): Path to CSV file containing pre-extracted global features (e.g., from PreProcessor)
+            drop_column_list (list[str]): List of column names to drop before building the dataloader.
         Returns:
             TimeSeriesAndGlobalDataset: The constructed dataset.
         """
 
         # Load data from CSV and check for required columns
         data_df = pd.read_csv(dataPath)
+        
+        # Drop specified columns if any
+        if drop_column_list:
+            columns_to_drop = [col for col in drop_column_list if col in data_df.columns]
+            if columns_to_drop:
+                data_df = data_df.drop(columns=columns_to_drop)
 
         # Flag to track if global features were loaded from separate file
         global_features_loaded_separately = False
@@ -50,6 +58,13 @@ class TimeSeriesAndGlobalDataset(Dataset):
         if globalFeaturesPath is not None:
             try:
                 global_features_df = pd.read_csv(globalFeaturesPath)
+                
+                # Drop specified columns from global features if any
+                if drop_column_list:
+                    columns_to_drop = [col for col in drop_column_list if col in global_features_df.columns]
+                    if columns_to_drop:
+                        global_features_df = global_features_df.drop(columns=columns_to_drop)
+                
                 # Extract sample indices in order from time series data
                 sample_ids = data_df[primaryKeyColumn].unique()
                 # Reindex global features to match time series sample order
@@ -281,11 +296,17 @@ class DataModule(L.LightningDataModule):
         self.current_fold = None
         self._full_labeled_dataset = None  # Store full dataset for K-Fold splitting
 
-    def setup(self, stage: str | None = None, includeTestInTrain: bool = True):
+    def setup(self, 
+        stage: str | None = None, 
+        includeTestInTrain: bool = True,
+        drop_column_list: list = []
+        ):
         """
         Setup datasets for training, validation, and testing.
         Args:
             stage (str | None): Stage of setup ("fit", "test", or None for all).
+            includeTestInTrain (bool): Whether to include unlabeled test data in training set.
+            drop_column_list (list): List of column names to drop before building the dataloader.
         """
 
         # Load and split datasets based on the stage
@@ -307,6 +328,7 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
                 globalFeaturesPath=train_global_path,
+                drop_column_list=drop_column_list,
             )
 
             self.updateDataInfo(labeled_dataset)
@@ -341,6 +363,7 @@ class DataModule(L.LightningDataModule):
                     primaryKeyColumn=self.primaryKeyColumn,
                     timeSeriesColumns=self.timeSeriesColumns,
                     globalFeaturesPath=test_global_path,
+                    drop_column_list=drop_column_list,
                 )
 
                 # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
@@ -366,6 +389,7 @@ class DataModule(L.LightningDataModule):
                 primaryKeyColumn=self.primaryKeyColumn,
                 timeSeriesColumns=self.timeSeriesColumns,
                 globalFeaturesPath=test_global_path,
+                drop_column_list=drop_column_list,
             )
 
     def updateDataInfo(self, dataset: TimeSeriesAndGlobalDataset) -> dict:
