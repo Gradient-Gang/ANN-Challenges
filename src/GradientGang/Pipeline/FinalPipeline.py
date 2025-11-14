@@ -52,9 +52,9 @@ class FinalPipeline:
             raise ValueError("Submission path must be provided in parameters.")
 
         # Initialize database connection
-        self.database_path = params.get("database_path", None)
-        if not self.database_path:
-            raise ValueError("Database path must be provided in parameters.")
+        self.database_url = params.get("database_url", None)
+        if not self.database_url:
+            raise ValueError("Database URL must be provided in parameters.")
         self.load_database()
         print("✓ Database initialized successfully!")
 
@@ -71,11 +71,9 @@ class FinalPipeline:
         """
         Load database configuration from environment file.
 
-        Reads the DATABASE_URL from the .env file specified in database_path.
         This URL is used for persistent storage of Optuna study results.
         """
-        dotenv.load_dotenv(dotenv_path=self.database_path)
-        self.storage = os.getenv("DATABASE_URL")
+        self.storage = self.database_url
         print(
             f"Storage: {self.storage[:21]}..."
             if self.storage
@@ -1152,7 +1150,8 @@ class FinalPipeline:
             "LearningRate", 1e-5, 1e-2, log=True)
         archParams["RegularizationWeight"] = trial.suggest_float(
             "RegularizationWeight", 1e-3, 1e1, log=True)
-        archParams["ClassWeightsPath"] = "../dataset/PirateProcessed/class_weights.yaml"
+        archParams["ClassWeightsPath"] = self.data_params.get(
+            'class_weights_path', "../dataset/PirateProcessed/class_weights.yaml")
 
         # Maximum training epochs (early stopping may terminate earlier)
         max_epochs = 100
