@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import time
+from datetime import datetime
 
 warnings.filterwarnings("ignore")
 
@@ -23,6 +24,8 @@ from GradientGang.Pipeline.Architectures.WindowedModelWrapper import (
     WindowedModelWrapper,
 )
 from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
+from GradientGang.Pipeline.Utils.EnsembleModels import EnsembleModel
+from GradientGang.Pipeline.SubmissionGenerator.WindowedSubmissionGenerator import WindowedSubmissionGenerator
 
 
 class FinalPipeline:
@@ -1052,21 +1055,10 @@ class FinalPipeline:
         macroArchitecture = trial.suggest_categorical("MacroArchitecture", ["Direct", "Autoencoder"])
         
         # ==================== STEP 2: Configure Data Windowing ====================
-        # Windowing splits time series into smaller overlapping segments
+        # Windowing splits time series into smaller overlapping segments (MODEL-LEVEL, not data-loader level)
         # This can help the model learn from more samples and capture local patterns
         use_windowing = trial.suggest_categorical("use_windowing", [True, False])
         
-        if use_windowing:
-            window_size = trial.suggest_int("window_size", 10, 160)
-
-        # Suggest macro architecture
-        macroArchitecture = trial.suggest_categorical(
-            "MacroArchitecture", ["Direct", "Autoencoder"]
-        )
-
-        # Suggest windowing parameters (MODEL-LEVEL, not data-loader level)
-        use_windowing = trial.suggest_categorical("use_windowing", [True, False])
-
         if use_windowing:
             # Window size: how much of the sequence to process at once
             window_size = trial.suggest_int("window_size", 5, 30)
@@ -1266,6 +1258,207 @@ class FinalPipeline:
         # Return mean F1 as the optimization objective
         return mean_f1
 
+    def load_best_model(self):
+        """
+        Load the best model from the Optuna study.
+        
+        This function reconstructs the model architecture from the best trial's
+        hyperparameters and loads the corresponding checkpoint from disk.
+        
+        Process:
+        1. Get best trial from Optuna study
+        2. Reconstruct architecture parameters from trial hyperparameters
+        3. Search for checkpoint file using multiple strategies:
+           - Look for trial number in checkpoint filename
+           - Try version directory matching trial number
+           - Search nearby version numbers (trials may be sequential)
+        4. Load model from checkpoint
+        5. Apply He initialization
+        6. Wrap with WindowedModelWrapper if windowing was used
+        7. Set model to evaluation mode
+        
+        Returns:
+            torch.nn.Module: The loaded best model ready for inference
+        
+        Raises:
+            ValueError: If no completed trials exist in the study
+            FileNotFoundError: If checkpoint file cannot be found
+        
+        Side Effects:
+            - Sets self.best_model to the loaded model
+            - Prints status messages during loading process
+        
+        Example:
+            >>> pipeline.load_best_model()
+            >>> predictions = pipeline.create_submission()
+        """
+        import glob
+        
+        # Get best trial from study
+        completed_trials = [
+            t for t in self.study.trials 
+            if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        
+        if not completed_trials:
+            raise ValueError("No completed trials found in study. Run optimization first.")
+        
+        best_trial = self.study.best_trial
+        best_params = best_trial.params
+        
+        print("=" * 60)
+        print("LOADING BEST MODEL")
+        print("=" * 60)
+        print(f"Best trial: {best_trial.number}")
+        print(f"Best F1 score: {best_trial.value:.4f}")
+        print(f"Architecture: {best_params.get('MacroArchitecture', 'Unknown')}")
+        print(f"Encoder type: {best_params.get('architectureType', 'Unknown')}")
+        print("-" * 60)
+        
+        # Create a trial wrapper to reuse setup functions
+        class TrialWrapper:
+            def __init__(self, params):
+                self.params = params
+            
+            def suggest_categorical(self, name, choices):
+                return self.params[name]
+            
+            def suggest_int(self, name, low, high, log=False):
+                return self.params[name]
+            
+            def suggest_float(self, name, low, high, log=False):
+                return self.params[name]
+        
+        trial_wrapper = TrialWrapper(best_params)
+        
+        # Setup data to get dataset info
+        includeTestInTrain = best_params.get('MacroArchitecture') == 'Autoencoder'
+        data_loader = DataModule(params=self.data_params)
+        data_loader.setup(stage='fit', includeTestInTrain=includeTestInTrain)
+        datasetInfo = data_loader.getDatasetInfo()
+        
+        # Reconstruct architecture parameters
+        print("Reconstructing architecture...")
+        archParams = {}
+        archParams = self.setUpEncoder(trial_wrapper, archParams, datasetInfo)
+        archParams = self.setUpFeedForwardHead(trial_wrapper, archParams, datasetInfo)
+        
+        macroArch = best_params.get('MacroArchitecture', 'Direct')
+        if macroArch == "Autoencoder":
+            archParams = self.setUpDecoder(trial_wrapper, archParams, datasetInfo)
+            archParams["ReconstructionLossWeight"] = best_params.get('ReconstructionLossWeight', 0.5)
+        
+        # Add training parameters
+        archParams['LearningRate'] = best_params['LearningRate']
+        archParams['RegularizationWeight'] = best_params['RegularizationWeight']
+        archParams['OutputDim'] = 3
+        archParams['ClassWeightsPath'] = self.data_params.get('class_weights_path', '../dataset/PirateProcessed/class_weights.yaml')
+        
+        # Add scheduler parameters if they exist
+        scheduler_type = best_params.get('SchedulerType', 'ReduceLROnPlateau')
+        archParams['SchedulerType'] = scheduler_type
+        
+        if scheduler_type == "ReduceLROnPlateau":
+            archParams["Patience"] = best_params.get('SchedulerPatience', 5)
+            archParams["SchedulerFactor"] = best_params.get('SchedulerFactor', 0.5)
+            archParams["SchedulerMinLR"] = best_params.get('SchedulerMinLR', 1e-6)
+        elif scheduler_type == "CosineAnnealing":
+            archParams["T_max"] = 100
+            archParams["eta_min"] = best_params.get('eta_min', 1e-6)
+        elif scheduler_type == "CosineAnnealingWarmRestarts":
+            archParams["T_0"] = best_params.get('T_0', 10)
+            archParams["T_mult"] = best_params.get('T_mult', 2)
+            archParams["eta_min"] = best_params.get('eta_min', 1e-6)
+        
+        print("✓ Architecture reconstructed")
+        
+        # Find checkpoint file
+        print("Searching for checkpoint...")
+        checkpoint_path = None
+        
+        # Strategy 1: Look for trial number in checkpoint filename
+        checkpoint_pattern = f'lightning_logs/version_*/checkpoints/trial-{best_trial.number}-*.ckpt'
+        checkpoints = glob.glob(checkpoint_pattern)
+        
+        # Strategy 2: Try version directory matching trial number
+        if not checkpoints:
+            version_dir = f'lightning_logs/version_{best_trial.number}/checkpoints/*.ckpt'
+            checkpoints = glob.glob(version_dir)
+        
+        # Strategy 3: Search nearby version numbers (trials may be sequential)
+        if not checkpoints:
+            for offset in range(-5, 6):
+                version_num = best_trial.number + offset
+                if version_num >= 0:
+                    version_dir = f'lightning_logs/version_{version_num}/checkpoints/*.ckpt'
+                    potential = glob.glob(version_dir)
+                    if potential:
+                        checkpoints = potential
+                        break
+        
+        if not checkpoints:
+            raise FileNotFoundError(
+                f"No checkpoint found for trial {best_trial.number}. "
+                f"Make sure the checkpoint files exist in lightning_logs/."
+            )
+        
+        # Select best checkpoint (prefer ones with val_F1 in name)
+        if any('val_F1=' in ckpt for ckpt in checkpoints):
+            checkpoint_path = sorted(
+                [c for c in checkpoints if 'val_F1=' in c],
+                key=lambda x: float(x.split('val_F1=')[1].split('.ckpt')[0]),
+                reverse=True
+            )[0]
+        else:
+            checkpoint_path = sorted(checkpoints)[-1]
+        
+        print(f"✓ Found checkpoint: {checkpoint_path}")
+        
+        # Load base model
+        print("Loading model from checkpoint...")
+        if macroArch == "Direct":
+            base_model = Direct.load_from_checkpoint(checkpoint_path, params=archParams)
+        else:
+            base_model = LightningAutoencoder.load_from_checkpoint(checkpoint_path, params=archParams)
+        
+        # Apply He initialization
+        ff_activation = archParams["FeedForwardParams"]["activation_function"]
+        self.apply_he_initialization(base_model, activation_type=ff_activation)
+        
+        # Wrap with WindowedModelWrapper if windowing was used
+        use_windowing = best_params.get('use_windowing', False)
+        if use_windowing:
+            print("Wrapping with WindowedModelWrapper...")
+            window_size = best_params.get('window_size', 160)
+            stride_ratio = best_params.get('stride_ratio', 1.0)
+            stride = int(window_size * stride_ratio)
+            aggregation_method = best_params.get('aggregation_method', 'avg_probs')
+            window_loss_weight = best_params.get('window_loss_weight', 0.0)
+            
+            model = WindowedModelWrapper(
+                base_model=base_model,
+                window_size=window_size,
+                stride=stride,
+                aggregation_method=aggregation_method,
+                window_loss_weight=window_loss_weight,
+            )
+        else:
+            model = base_model
+        
+        # Set to eval mode and move to device
+        model.eval()
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device)
+        
+        print(f"✓ Model loaded and moved to {device}")
+        print("=" * 60)
+        
+        # Store model and dataloader
+        self.best_model = model
+        self.dataloader = data_loader
+        
+        return model
+
     #submissions
     def create_submission(self):
         """
@@ -1275,7 +1468,7 @@ class FinalPipeline:
         test dataset, and generates a submission CSV file in the required format.
         
         Steps:
-        1. Load the best model checkpoint from training.
+        1. Load the best model checkpoint from training (if not already loaded).
         2. Prepare the test dataset using the same preprocessing as training.
         3. Perform inference to get predicted class labels.
         4. Format predictions into a DataFrame with required columns.
@@ -1283,22 +1476,40 @@ class FinalPipeline:
         
         Note:
             - Ensure that the model architecture and preprocessing match those used during training.
-            - The submission file should contain columns: 'id', 'predicted_label'.
+            - The submission file should contain columns: 'sample_index', 'label'.
+            - If best_model is not loaded, will automatically call load_best_model()
+        
+        Returns:
+            pd.DataFrame: The submission dataframe
         """
-
-        #TODO: finish it
-
-        ensemble_model = EnsembleModel()
-
+        # Load best model if not already loaded
+        if self.best_model is None:
+            print("Best model not loaded, loading now...")
+            self.load_best_model()
+        
+        if self.dataloader is None:
+            raise ValueError("No dataloader found. This should not happen after load_best_model().")
+        
+        # Setup test dataloader
+        self.dataloader.setup(stage='test', includeTestInTrain=False)
+        test_loader = self.dataloader.test_dataloader()
+        
+        # Create submission generator
         submitter = WindowedSubmissionGenerator(
-            model = self.best_model,
-            dataloader = self.dataloader
+            model=self.best_model,
+            dataloader=test_loader,
+            label_mapping={0: "no_pain", 1: "low_pain", 2: "high_pain"},
+            aggregation_method="avg_probs"
         )
 
-        time_now = time.now().strftime("%Y%m%d_%H%M%S")
-        path = self.submission_folder + "/submission_{}.csv".format(time_now)
-        submitter.generate_submission(
-            output_path = path
-        )
-
-        pass 
+        # Generate timestamp and output path
+        time_now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(self.submission_folder, f"submission_{time_now}.csv")
+        
+        # Generate submission
+        submission_df = submitter.generate_submission(output_path=path)
+        
+        print(f"✓ Submission generated: {path}")
+        print(f"Total predictions: {len(submission_df)}")
+        
+        return submission_df 
