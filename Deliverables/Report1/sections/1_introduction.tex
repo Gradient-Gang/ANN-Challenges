@@ -1,26 +1,53 @@
 \section{Introduction}
 
-This project addresses the \textbf{first challenge} of the Artificial Neural Networks and Deep Learning course (A.Y. 2025-2026), which focuses on \textbf{multivariate time series classification}. The task involves classifying pain levels from different sensor-based signals, which is a critical problem in medical monitoring and patient care systems.
+This project addresses the first challenge of the \textit{Artificial Neural Networks and Deep Learning} course (A.Y.\ 2025--2026), which focuses on the supervised classification of \emph{multivariate time series}. The task consists in predicting a subject's pain intensity level from a collection of sensor-derived temporal signals. Accurate and automated pain-level estimation plays a crucial role in clinical monitoring, rehabilitation, and continuous patient–state assessment.
 
 \subsection{Problem Definition}
 
-The dataset consists of \textit{multivariate time series} sequences, where for all samples we have 160 time steps and for each timestamp we have data from:
+The dataset is composed of $n$ multivariate time series of fixed temporal length $T = 160$.  
+For each sample $i \in \{1,\dots,n\}$, the raw input is a tensor
+\[
+    X_i \in \mathbb{R}^{F \times T},
+\]
+where $F = 34$ denotes the total number of feature channels. These channels include:
 \begin{itemize}
-    \item \textbf{4 surveys}: based on simple rule-based sensor aggregations estimating perceived pain;
-    \item \textbf{30 input channels}: data from sensors with continuous measurements of body joint angles (neck, elbow, knee, etc.);
-    \item \textbf{3 constant global features}: subject characteristics constant over time.
+    \item \textbf{4 survey-derived channels}, obtained from rule-based aggregations estimating subjectively perceived pain;
+    \item \textbf{30 biomechanical channels}, representing continuous joint-angle measurements across multiple body parts;
+    \item \textbf{3 global features}, constant over time and describing subject-level attributes.
 \end{itemize}
 
-\noindent Each sequence must be assigned to one of three pain intensity classes: \textbf{No Pain (class 0)}, \textbf{Low Pain (class 1)}, or \textbf{High Pain (class 2)}.
-The challenge requires building neural networks \textbf{from scratch} without using pretrained models.
+\noindent Each time series $X_i$ is associated with a categorical label
+\[
+    y_i \in \{0,1,2\},
+\]
+corresponding respectively to \textbf{No Pain}, \textbf{Low Pain}, and \textbf{High Pain}.  
+The goal is to learn a function
+\[
+    f_\theta : \mathbb{R}^{F \times T} \to \{0,1,2\},
+\]
+parameterized by $\theta$, that maximizes classification performance under the evaluation metric described below.
 
 \subsection{Objectives}
 
-Our primary goals are to:
+The challenge requires the development of neural architectures \emph{from scratch}, without the use of pretrained models. Our main objectives are:
 \begin{enumerate}
-    \item \textbf{Design robust neural architectures}: The network should be capable of capturing temporal dependencies and multivariate correlations in physiological time series data.
-    \item \textbf{Maximize F1-Score}: The accuracy of our model is computed using the F1-Score across all three pain classes.
-    \item \textbf{Compare multiple architectural approaches}: We need to explore different types of models such as FFNN, LSTM, GRU, or autoencoder-based methods to design a network that best approximates the underlying function.
+    \item \textbf{Design expressive temporal models.}  
+    The architecture must effectively capture both short- and long-range temporal dependencies, as well as inter-feature correlations inherent in physiological time series.
+
+    \item \textbf{Maximize the macro F1-score.}  
+    Model performance is evaluated through the macro-averaged F1-score across the three classes:
+    \[
+        \mathrm{F1}_{\text{macro}} = \frac{1}{3}\sum_{c=0}^{2} \mathrm{F1}_c,
+    \]
+    where $\mathrm{F1}_c$ is the class-specific F1-score.
+
+    \item \textbf{Explore multiple architectural paradigms.}  
+    We systematically compare feedforward networks, recurrent encoders (LSTM/GRU), convolutional models, and autoencoder-based multi-task architectures in order to identify the most effective design for the given problem.
 \end{enumerate}
 
 \subsection{Approach}
+
+Our approach combines a rigorous preprocessing pipeline, principled dimensionality reduction, and automated hyperparameter optimization. Time series are standardized, augmented with global descriptors, optionally compressed via PCA/POD, and then passed to a modular deep-learning pipeline supporting K-fold cross-validation and model-level windowing.  
+Hyperparameters—architectural, optimization-related, and regularization coefficients—are selected through an Optuna-driven search integrated with PyTorch Lightning and a PostgreSQL-backed study for persistent experiment tracking.
+
+The final model is selected as the configuration achieving the highest mean validation F1-score across folds and is subsequently used to generate predictions for the test set.
