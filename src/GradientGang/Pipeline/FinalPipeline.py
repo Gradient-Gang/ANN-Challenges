@@ -1263,12 +1263,135 @@ class FinalPipeline:
         # Return mean F1 as the optimization objective
         return mean_f1
 
+    def _retrain_best_model(self, trial_wrapper, archParams, macroArch, data_loader, best_params):
+        """
+        Retrain the best model from scratch using Optuna's best hyperparameters.
+        
+        This is a fallback method when checkpoint files are not available.
+        It trains the model on ALL folds' training data combined for maximum performance.
+        
+        Args:
+            trial_wrapper: Mock trial object with best parameters
+            archParams (dict): Architecture configuration
+            macroArch (str): "Direct" or "Autoencoder"
+            data_loader (DataModule): Data loader instance
+            best_params (dict): Best hyperparameters from Optuna
+        
+        Returns:
+            torch.nn.Module: Trained base model (before windowing wrapper)
+        """
+        print("Retraining model on full dataset...")
+        
+        # Create fresh model instance
+        if macroArch == "Direct":
+            base_model = Direct(params=archParams)
+        else:
+            base_model = LightningAutoencoder(params=archParams)
+        
+        # Apply He initialization
+        ff_activation = archParams["FeedForwardParams"]["activation_function"]
+        self.apply_he_initialization(base_model, activation_type=ff_activation)
+        
+        # Wrap with WindowedModelWrapper if windowing was used during optimization
+        use_windowing = best_params.get('use_windowing', False)
+        if use_windowing:
+            print("Wrapping with WindowedModelWrapper for training...")
+            window_size = best_params.get('window_size', 160)
+            stride_ratio = best_params.get('stride_ratio', 1.0)
+            stride = int(window_size * stride_ratio)
+            aggregation_method = best_params.get('aggregation_method', 'avg_probs')
+            window_loss_weight = best_params.get('window_loss_weight', 0.0)
+            
+            training_model = WindowedModelWrapper(
+                base_model=base_model,
+                window_size=window_size,
+                stride=stride,
+                aggregation_method=aggregation_method,
+                window_loss_weight=window_loss_weight,
+            )
+        else:
+            training_model = base_model
+        
+        # Prepare combined training data (train all folds together for best performance)
+        includeTestInTrain = macroArch == "Autoencoder"
+        data_loader.setup(stage='fit', includeTestInTrain=includeTestInTrain)
+        train_loader = data_loader.train_dataloader()
+        val_loader = data_loader.val_dataloader()
+        
+        # Get training parameters
+        max_epochs = 100
+        early_stopping_patience = best_params.get('EarlyStoppingPatience', 15)
+        
+        # Setup callbacks
+        early_stopping_callback = EarlyStopping(
+            monitor="val_F1",
+            patience=early_stopping_patience,
+            mode="max",
+            verbose=True,
+        )
+        
+        checkpoint_callback = ModelCheckpoint(
+            monitor="val_F1",
+            mode="max",
+            save_top_k=1,
+            filename="best-retrained-{epoch:02d}-{val_F1:.3f}",
+            verbose=True,
+        )
+        
+        # Create trainer
+        trainer = Trainer(
+            max_epochs=max_epochs,
+            enable_progress_bar=True,
+            enable_model_summary=True,
+            callbacks=[early_stopping_callback, checkpoint_callback],
+            enable_checkpointing=True,
+        )
+        
+        print(f"Training for up to {max_epochs} epochs...")
+        print(f"Early stopping patience: {early_stopping_patience}")
+        if use_windowing:
+            print(f"Using windowing: window_size={window_size}, stride={stride}, aggregation={aggregation_method}")
+        print("-" * 60)
+        
+        # Train the model (with or without windowing wrapper)
+        trainer.fit(training_model, train_loader, val_loader)
+        
+        print("-" * 60)
+        print(f"✓ Retraining completed!")
+        print(f"Best validation F1: {checkpoint_callback.best_model_score:.4f}")
+        
+        # Load best checkpoint from retraining
+        best_checkpoint = checkpoint_callback.best_model_path
+        if best_checkpoint:
+            print(f"Loading best checkpoint: {best_checkpoint}")
+            if use_windowing:
+                # Load the wrapped model and extract base model
+                wrapped_model = WindowedModelWrapper.load_from_checkpoint(
+                    best_checkpoint,
+                    base_model=base_model,
+                    window_size=window_size,
+                    stride=stride,
+                    aggregation_method=aggregation_method,
+                    window_loss_weight=window_loss_weight,
+                )
+                # Return the unwrapped base model
+                base_model = wrapped_model.base_model
+            else:
+                # Load the base model directly
+                if macroArch == "Direct":
+                    base_model = Direct.load_from_checkpoint(best_checkpoint, params=archParams)
+                else:
+                    base_model = LightningAutoencoder.load_from_checkpoint(best_checkpoint, params=archParams)
+        
+        return base_model
+
     def load_best_model(self):
         """
         Load the best model from the Optuna study.
         
         This function reconstructs the model architecture from the best trial's
         hyperparameters and loads the corresponding checkpoint from disk.
+        If no checkpoint is found, it falls back to retraining the model.
         
         Process:
         1. Get best trial from Optuna study
@@ -1277,7 +1400,8 @@ class FinalPipeline:
            - Look for trial number in checkpoint filename
            - Try version directory matching trial number
            - Search nearby version numbers (trials may be sequential)
-        4. Load model from checkpoint
+        4a. If checkpoint found: Load model from checkpoint
+        4b. If checkpoint NOT found: Retrain model with best hyperparameters
         5. Apply He initialization
         6. Wrap with WindowedModelWrapper if windowing was used
         7. Set model to evaluation mode
@@ -1287,11 +1411,11 @@ class FinalPipeline:
         
         Raises:
             ValueError: If no completed trials exist in the study
-            FileNotFoundError: If checkpoint file cannot be found
         
         Side Effects:
             - Sets self.best_model to the loaded model
             - Prints status messages during loading process
+            - May retrain model if checkpoint not found (creates new checkpoint)
         
         Example:
             >>> pipeline.load_best_model()
@@ -1402,33 +1526,46 @@ class FinalPipeline:
                         break
         
         if not checkpoints:
-            raise FileNotFoundError(
-                f"No checkpoint found for trial {best_trial.number}. "
-                f"Make sure the checkpoint files exist in lightning_logs/."
-            )
-        
-        # Select best checkpoint (prefer ones with val_F1 in name)
-        if any('val_F1=' in ckpt for ckpt in checkpoints):
-            checkpoint_path = sorted(
-                [c for c in checkpoints if 'val_F1=' in c],
-                key=lambda x: float(x.split('val_F1=')[1].split('.ckpt')[0]),
-                reverse=True
-            )[0]
+            # FALLBACK: Retrain the model if no checkpoint found
+            print("⚠️ No checkpoint found. Retraining best model with optimal hyperparameters...")
+            print("-" * 60)
+            
+            base_model = self._retrain_best_model(trial_wrapper, archParams, macroArch, data_loader, best_params)
+            
         else:
-            checkpoint_path = sorted(checkpoints)[-1]
-        
-        print(f"✓ Found checkpoint: {checkpoint_path}")
-        
-        # Load base model
-        print("Loading model from checkpoint...")
-        if macroArch == "Direct":
-            base_model = Direct.load_from_checkpoint(checkpoint_path, params=archParams)
-        else:
-            base_model = LightningAutoencoder.load_from_checkpoint(checkpoint_path, params=archParams)
-        
-        # Apply He initialization
-        ff_activation = archParams["FeedForwardParams"]["activation_function"]
-        self.apply_he_initialization(base_model, activation_type=ff_activation)
+            # Select best checkpoint (prefer ones with val_F1 in name)
+            if any('val_F1=' in ckpt for ckpt in checkpoints):
+                checkpoint_path = sorted(
+                    [c for c in checkpoints if 'val_F1=' in c],
+                    key=lambda x: float(x.split('val_F1=')[1].split('.ckpt')[0]),
+                    reverse=True
+                )[0]
+            else:
+                checkpoint_path = sorted(checkpoints)[-1]
+            
+            print(f"✓ Found checkpoint: {checkpoint_path}")
+            
+            # Try to load base model from checkpoint
+            print("Loading model from checkpoint...")
+            try:
+                if macroArch == "Direct":
+                    base_model = Direct.load_from_checkpoint(checkpoint_path, params=archParams)
+                else:
+                    base_model = LightningAutoencoder.load_from_checkpoint(checkpoint_path, params=archParams)
+                
+                # Apply He initialization
+                ff_activation = archParams["FeedForwardParams"]["activation_function"]
+                self.apply_he_initialization(base_model, activation_type=ff_activation)
+                
+                print("✓ Model loaded successfully from checkpoint")
+                
+            except Exception as e:
+                # FALLBACK: If checkpoint loading fails, retrain the model
+                print(f"⚠️ Error loading checkpoint: {e}")
+                print("Retraining best model with optimal hyperparameters...")
+                print("-" * 60)
+                
+                base_model = self._retrain_best_model(trial_wrapper, archParams, macroArch, data_loader, best_params)
         
         # Wrap with WindowedModelWrapper if windowing was used
         use_windowing = best_params.get('use_windowing', False)
