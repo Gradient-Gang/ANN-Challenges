@@ -226,7 +226,7 @@ class FinalPipeline:
         """
         # First setup global feature encoder
         globalInputDim = datasetInfo["globalFeaturesShape"][0]
-        globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 128)
+        globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 80)
         globalNumLayers = trial.suggest_int("globalNumLayers", 1, 3)
         globalDropout = trial.suggest_float("globalDropout", 0.0, 0.5)
         globalActivation = trial.suggest_categorical(
@@ -1061,7 +1061,7 @@ class FinalPipeline:
         
         if use_windowing:
             # Window size: how much of the sequence to process at once
-            window_size = trial.suggest_int("window_size", 5, 30)
+            window_size = trial.suggest_int("window_size", 5, 40)
 
             # Stride: step size between windows (lower = more overlap)
             # Use categorical to prefer common overlap patterns
