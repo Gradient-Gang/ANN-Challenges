@@ -1229,30 +1229,40 @@ class FinalPipeline:
 
             # Add early stopping callback
             early_stopping_callback = EarlyStopping(
-                monitor="val_F1",
+                monitor="val_prediction_loss",
                 patience=early_stopping_patience,
-                mode="max",
+                mode="min",
                 verbose=False,
             )
 
+            # Tensorboard Logging
+            logger = TensorBoardLogger(
+                save_dir=f"FinalPipelineLogs/Study_{trial.study.study_name}",
+                name=f"{trial.study.study_name}_trial_{trial.number}_fold_{fold_idx}",
+                log_graph = True,
+            )
+
             # Model checkpointing: saves best model based on validation F1
+            # Save checkpoints in the same directory as TensorBoard logs
             checkpoint_callback = ModelCheckpoint(
-                monitor="val_F1",
-                mode="max",
+                dirpath=logger.log_dir + "/checkpoints",  # Save in same dir as logs
+                monitor="val_prediction_loss",
+                mode="min",
                 save_top_k=1,
                 filename=f"trial-{trial.number}-fold-{fold_idx}-"
-                + "{epoch:02d}-{val_F1:.3f}",
+                + "{epoch:02d}-{val_prediction_loss:.3f}",
                 verbose=False,
             )
 
             # Create PyTorch Lightning trainer with configured callbacks
             trainer = Trainer(
                 max_epochs=max_epochs,
-                enable_progress_bar=False,
+                enable_progress_bar=True,
                 enable_model_summary=False,
-                log_every_n_steps=20,
                 callbacks=[early_stopping_callback, checkpoint_callback],
                 enable_checkpointing=True,
+                logger=logger,
+                log_every_n_steps=20,
             )
 
             # Train the model
