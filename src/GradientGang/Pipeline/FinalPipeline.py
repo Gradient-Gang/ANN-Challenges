@@ -653,28 +653,33 @@ class FinalPipeline:
 
             layerList = []
 
-            # RNN layer: input_size must match output features for teacher forcing
+            # RNN layer: Must match encoder configuration exactly
+            # IMPORTANT: Decoder bidirectional must match encoder bidirectional
+            # IMPORTANT: Decoder num_layers must match encoder num_layers
+            # This ensures encoder output shape matches decoder expected hidden state shape
             layerList.append(
                 {
                     "name": rnnType,
                     "params": {
                         "input_size": outputSize,  # 34 (for teacher forcing)
                         "hidden_size": hiddenDim,  # Keep encoder's hidden size
-                        "num_layers": numLayers,
+                        "num_layers": numLayers,    # MUST match encoder layers
                         "bias": True,
                         "batch_first": True,
                         "dropout": dropout if numLayers > 1 else 0.0,
-                        "bidirectional": False,  # Decoder typically not bidirectional
+                        "bidirectional": bidirectional,  # MUST match encoder bidirectionality
                     },
                 }
             )
 
-            # Linear projection: hidden_size -> output_size (34 channels)
+            # Linear projection: account for bidirectional output
+            # If bidirectional, RNN outputs hidden_size * 2
+            decoder_output_features = hiddenDim * (2 if bidirectional else 1)
             layerList.append(
                 {
                     "name": "Linear",
                     "params": {
-                        "in_features": hiddenDim,
+                        "in_features": decoder_output_features,  # hidden_size or hidden_size*2
                         "out_features": outputSize,  # 34
                         "bias": True,
                     },

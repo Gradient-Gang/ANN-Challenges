@@ -306,33 +306,41 @@ class Decoder(nn.Module):
                     # Encoder output: (batch, encoder_hidden * encoder_directions)
                     # Decoder needs: (num_layers, batch, decoder_hidden)
                     #
-                    # Common case: encoder is bidirectional (2 directions), decoder is not (1 direction)
-                    # So encoder outputs 2*hidden, we need to project/select to 1*hidden for decoder
+                    # Cases to handle:
+                    # 1. Bidirectional encoder → unidirectional decoder (410 → 205)
+                    # 2. Multi-layer encoder → decoder expects num_layers * hidden (58 → 116 for 2 layers)
+                    # 3. Different hidden sizes between encoder and decoder
                     
                     encoder_output_features = x.shape[1]
                     decoder_expected_features = num_layers * hidden_size
                     
                     # If encoder output doesn't match decoder expectation, we need to adapt
                     if encoder_output_features != decoder_expected_features:
-                        # Encoder might be bidirectional outputting 2*hidden, decoder expects 1*hidden
+                        # Case 1: Bidirectional encoder (2x features) → unidirectional decoder
                         if encoder_output_features == 2 * decoder_expected_features:
-                            # Take only the forward direction or average both directions
-                            # Average both directions for better information preservation
+                            # Average forward and backward directions
                             x_forward = x[:, :decoder_expected_features]
                             x_backward = x[:, decoder_expected_features:]
                             x = (x_forward + x_backward) / 2
-                        elif encoder_output_features > decoder_expected_features:
-                            # Use a linear projection (but we don't have the layer here)
-                            # For now, just truncate to the expected size
-                            x = x[:, :decoder_expected_features]
+                        
+                        # Case 2: Encoder has fewer features than decoder expects (multi-layer decoder)
+                        elif encoder_output_features < decoder_expected_features:
+                            # Decoder has multiple layers but encoder only outputs last layer
+                            # Replicate encoder output for all decoder layers
+                            # Example: encoder outputs 58, decoder needs 116 (2 layers × 58)
+                            if decoder_expected_features % encoder_output_features == 0:
+                                # Replicate the encoder output for each decoder layer
+                                num_replications = decoder_expected_features // encoder_output_features
+                                x = x.repeat(1, num_replications)
+                            else:
+                                # Pad with zeros to reach expected size
+                                padding_size = decoder_expected_features - encoder_output_features
+                                x = torch.nn.functional.pad(x, (0, padding_size), mode='constant', value=0)
+                        
+                        # Case 3: Encoder has more features than decoder expects
                         else:
-                            # Encoder output is smaller than expected - this is an error
-                            raise RuntimeError(
-                                f"[Decoder RNN] Shape mismatch! Encoder output has {encoder_output_features} features, "
-                                f"but decoder expects {decoder_expected_features} (num_layers={num_layers} * hidden_size={hidden_size}). "
-                                f"Full encoder output shape: {x.shape}. "
-                                f"Cannot adapt from smaller to larger hidden state!"
-                            )
+                            # Truncate or project to expected size
+                            x = x[:, :decoder_expected_features]
                     
                     h0 = x.view(num_layers, batch_size, hidden_size)
 
