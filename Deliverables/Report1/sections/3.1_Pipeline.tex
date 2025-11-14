@@ -1,0 +1,141 @@
+\subsection{Pipeline}
+
+The Pipeline module provides a production-grade orchestration framework for end-to-end deep learning experiments with automated hyperparameter optimization.  
+Its central component, the \texttt{FinalPipeline} class, performs architecture selection, $K$-fold cross-validation, checkpointing, distributed training, and submission generation.  
+The system integrates Optuna (TPE sampler, Median Pruner), PostgreSQL for persistent experiment tracking, PyTorch Lightning for modular training and logging, and TensorBoard for monitoring.  
+The module supports multiple macro–architectures made of modular micro architectures.
+Given a dataset
+\[
+X \in \mathbb{R}^{N \times F \times T}, \qquad
+G \in \mathbb{R}^{N \times D},
+\]
+the pipeline automates the selection of model parameters $\theta$, trained via cross-validation to maximize a validation metric (mean F1-score).
+
+
+\subsubsection{Initialization}
+The pipeline constructs or resumes an Optuna study stored in PostgreSQL, initializes a TPE sampler (seeded) and a Median Pruner, and loads all dataset paths and K-fold parameters:
+\[
+\mathcal{S} = \text{OptunaStudy}(\text{TPE}, \text{MedianPruner}).
+\]
+
+\subsubsection{Hyperparameter Optimization}
+The optimization routine executes $n_{\mathrm{trials}}$ Optuna trials.  
+For each trial \(j\), Optuna samples a hyperparameter configuration
+\[
+\theta^{(j)} \sim q(\theta \mid \mathcal{S}),
+\]
+where $q$ is the TPE-induced density estimator.
+
+The objective function evaluates the mean F1-score across $K$ folds:
+\[
+\mathcal{L}(\theta^{(j)}) = \frac{1}{K} \sum_{k=1}^K \mathrm{F1}_{\mathrm{val}}^{(k)}(\theta^{(j)}).
+\]
+
+Each fold involves:
+\begin{itemize}
+    \item creation of training/validation splits,
+    \item construction of encoder/decoder/head modules according to $\theta^{(j)}$,
+    \item application of He initialization to all convolutional and linear layers,  
+    \[
+      W \sim \mathcal{N}\!\left(0, \frac{2}{\mathrm{fan\_in}}\right),
+    \]
+    \item optional wrapping in a windowed model,
+    \item PyTorch Lightning training with early stopping and checkpointing.
+\end{itemize}
+
+The trial is pruned when its intermediate value fails to exceed the median of previous trials.
+
+\subsubsection{Architecture Construction}
+The architecture builder assembles a complete model from components:
+\[
+f_{\theta} : (X, G) \mapsto \hat{y},
+\]
+where the encoder may be:
+\[
+\text{RNN}(\text{LSTM/GRU}),\quad \text{Conv1D},\quad \text{MultiScaleCNN}.
+\]
+For autoencoder models, a symmetric decoder reconstructs the input:
+\[
+\hat{X} = d_{\theta}(e_{\theta}(X)).
+\]
+
+The classification head consists of fully connected layers with dropout and non-linearities.
+
+\subsubsection{Windowing and Aggregation}
+If windowing is enabled, the model operates on subsequences
+\[
+X_{i,w} \in \mathbb{R}^{F \times T_w},
+\]
+where $T_w$ is the window size and the stride is 
+\[
+s = \alpha T_w, \quad \alpha \in [0.25,1].
+\]
+
+\noindent Aggregation methods include:
+\[
+\texttt{avg\_probs}: \quad \hat{y}_i = \frac{1}{W}\sum_{w=1}^{W} p_{i,w},
+\]
+\[
+\texttt{avg\_logits}: \quad z_i = \frac{1}{W}\sum_{w=1}^{W} z_{i,w},\quad
+\hat{y}_i = \mathrm{softmax}(z_i),
+\]
+\[
+\texttt{majority\_vote}: \quad \hat{y}_i = \mathrm{mode}\{ \arg\max p_{i,w}\},
+\]
+\[
+\texttt{max\_confidence}: \quad \hat{y}_i = \arg\max_{c} \max_{w} p_{i,w}(c).
+\]
+
+\subsubsection{Model Selection and Reconstruction}
+After optimization, the best trial
+\[
+\theta^{*} = \arg\max_{\theta^{(j)}} \mathcal{L}(\theta^{(j)})
+\]
+is identified.  
+The pipeline loads the corresponding checkpoint, reconstructs the architecture using the stored hyperparameters, applies windowing if necessary, and prepares the model for evaluation.
+
+\subsubsection{Submission Generation}
+For test samples \(X^{\mathrm{test}}\), the submission generator computes predictions
+\[
+\hat{y}^{\mathrm{test}} = f_{\theta^*}(X^{\mathrm{test}}, G^{\mathrm{test}}),
+\]
+applies the selected aggregation strategy, maps integer labels to:
+\[
+\{0,1,2\} \mapsto \{\text{no\_pain},\,\text{low\_pain},\,\text{high\_pain}\},
+\]
+and exports a CSV file with zero-padded indices.
+
+\subsection{Module Components}
+
+\subsubsection{DataLoader}
+The K-fold DataModule creates stratified splits:
+\[
+\bigcup_{k=1}^K \mathcal{D}_{\mathrm{train}}^{(k)} = \mathcal{D}, \qquad
+\mathcal{D}_{\mathrm{train}}^{(k)} \cap \mathcal{D}_{\mathrm{val}}^{(k)} = \emptyset.
+\]
+Batches follow the format:
+\[
+X \in \mathbb{R}^{B \times F \times T}, \quad
+G \in \mathbb{R}^{B \times D}.
+\]
+
+\subsubsection{Architectures}
+Supported:
+\begin{itemize}
+    \item RNN encoders: multi-layer LSTM/GRU with optional bidirectionality,
+    \item Conv1D encoders: temporal convolutions with pooling,
+    \item MultiScaleCNN: parallel convolutional branches at multiple receptive fields,
+    \item autoencoder decoders: symmetric to encoders,
+    \item feedforward classification heads.
+\end{itemize}
+
+\subsubsection{Submission Generator}
+Generates prediction matrices
+\[
+P \in \mathbb{R}^{N_{\mathrm{test}} \times C},
+\]
+applies aggregation rules, converts class indices to textual labels, and writes the final CSV.
+
+\subsubsection{Utilities}
+Additional utilities include validation of parameter configurations, ensemble model support, feature-selection wrappers, and automatic He initialization.
+
