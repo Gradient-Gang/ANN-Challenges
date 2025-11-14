@@ -19,3 +19,5 @@ logs_tb/
 
 # ignore the coverage reports
 .coverage
+
+**Logs/
