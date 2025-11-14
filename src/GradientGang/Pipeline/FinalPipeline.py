@@ -1147,6 +1147,10 @@ class FinalPipeline:
         n_folds = kfold_data_params["n_folds"]
 
         kfold_dataLoader = DataModule(params=kfold_data_params)
+        # First load test data if we need it for autoencoder training
+        if includeTestInTrain:
+            kfold_dataLoader.setup(stage="test", includeTestInTrain=False)
+        # Then load training data and prepare for K-fold splits
         kfold_dataLoader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = kfold_dataLoader.getDatasetInfo()
 
@@ -1432,6 +1436,10 @@ class FinalPipeline:
 
         # Prepare combined training data (train all folds together for best performance)
         includeTestInTrain = macroArch == "Autoencoder"
+        # First load test data if we need it for autoencoder training
+        if includeTestInTrain:
+            data_loader.setup(stage="test", includeTestInTrain=False)
+        # Then load training data
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         train_loader = data_loader.train_dataloader()
         val_loader = data_loader.val_dataloader()
@@ -1883,6 +1891,10 @@ class FinalPipeline:
 
         includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
+        # First load test data if we need it for autoencoder training
+        if includeTestInTrain:
+            data_loader.setup(stage="test", includeTestInTrain=False)
+        # Then load training data and prepare for K-fold splits
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
 
@@ -2145,6 +2157,10 @@ class FinalPipeline:
         # Setup data to get dataset info
         includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
+        # First load test data if we need it for autoencoder training
+        if includeTestInTrain:
+            data_loader.setup(stage="test", includeTestInTrain=False)
+        # Then load training data
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
 

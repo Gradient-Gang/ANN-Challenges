@@ -397,6 +397,12 @@ class DataModule(L.LightningDataModule):
         self.window_size = params.get("window_size", 160)
         self.stride = params.get("stride", 160)
 
+        # Initialize dataset attributes
+        self.train_dataset = None
+        self.train_labeled = None
+        self.val_dataset = None
+        self.test_dataset = None
+
     def setup(
         self,
         stage: str | None = None,
@@ -706,12 +712,31 @@ class DataModule(L.LightningDataModule):
             self.train_labeled = train_subset
             self.val_dataset = val_subset
 
+        # Load test dataset if needed and not already loaded
+        if include_test_in_train and self.test_dataset is None:
+            # Determine test global features file path
+            test_global_path = None
+            if self.test_global_features_file:
+                test_global_path = os.path.join(
+                    self.data_dir, self.test_global_features_file
+                )
+
+            # Load unlabeled test dataset with same windowing setting
+            self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
+                dataPath=os.path.join(self.data_dir, self.test_file_name),
+                labelsPath=None,
+                labelMapping=list(self.label_mapping.keys()),
+                globalColumns=self.globalFeaturesColumns,
+                primaryKeyColumn=self.primaryKeyColumn,
+                timeSeriesColumns=self.timeSeriesColumns,
+                globalFeaturesPath=test_global_path,
+                use_windowing=self.use_windowing,  # Same windowing as train
+                window_size=self.window_size,
+                stride=self.stride,
+            )
+
         # Optionally include unlabeled test data in training
-        if (
-            include_test_in_train
-            and hasattr(self, "test_dataset")
-            and self.test_dataset is not None
-        ):
+        if include_test_in_train and self.test_dataset is not None:
             self.train_dataset = ConcatDataset([self.train_labeled, self.test_dataset])
         else:
             self.train_dataset = self.train_labeled

@@ -301,19 +301,23 @@ class Decoder(nn.Module):
                     num_layers = rnn_layer.num_layers
                     hidden_size = rnn_layer.hidden_size
                     input_size = rnn_layer.input_size
+                    num_directions = 2 if rnn_layer.bidirectional else 1
 
                     # Reshape encoder output as initial hidden state h0
                     # Encoder output: (batch, encoder_hidden * encoder_directions)
-                    # Decoder needs: (num_layers, batch, decoder_hidden)
+                    # Decoder needs: (num_layers * num_directions, batch, decoder_hidden)
                     #
                     # Cases to handle:
                     # 1. Bidirectional encoder → unidirectional decoder (410 → 205)
                     # 2. Multi-layer encoder → decoder expects num_layers * hidden (58 → 116 for 2 layers)
                     # 3. Different hidden sizes between encoder and decoder
-                    
+                    # 4. Bidirectional decoder needs num_layers * 2 in first dimension
+
                     encoder_output_features = x.shape[1]
-                    decoder_expected_features = num_layers * hidden_size
-                    
+                    decoder_expected_features = (
+                        num_layers * hidden_size * num_directions
+                    )
+
                     # If encoder output doesn't match decoder expectation, we need to adapt
                     if encoder_output_features != decoder_expected_features:
                         # Case 1: Bidirectional encoder (2x features) → unidirectional decoder
@@ -322,7 +326,7 @@ class Decoder(nn.Module):
                             x_forward = x[:, :decoder_expected_features]
                             x_backward = x[:, decoder_expected_features:]
                             x = (x_forward + x_backward) / 2
-                        
+
                         # Case 2: Encoder has fewer features than decoder expects (multi-layer decoder)
                         elif encoder_output_features < decoder_expected_features:
                             # Decoder has multiple layers but encoder only outputs last layer
@@ -330,19 +334,27 @@ class Decoder(nn.Module):
                             # Example: encoder outputs 58, decoder needs 116 (2 layers × 58)
                             if decoder_expected_features % encoder_output_features == 0:
                                 # Replicate the encoder output for each decoder layer
-                                num_replications = decoder_expected_features // encoder_output_features
+                                num_replications = (
+                                    decoder_expected_features // encoder_output_features
+                                )
                                 x = x.repeat(1, num_replications)
                             else:
                                 # Pad with zeros to reach expected size
-                                padding_size = decoder_expected_features - encoder_output_features
-                                x = torch.nn.functional.pad(x, (0, padding_size), mode='constant', value=0)
-                        
+                                padding_size = (
+                                    decoder_expected_features - encoder_output_features
+                                )
+                                x = torch.nn.functional.pad(
+                                    x, (0, padding_size), mode="constant", value=0
+                                )
+
                         # Case 3: Encoder has more features than decoder expects
                         else:
                             # Truncate or project to expected size
                             x = x[:, :decoder_expected_features]
-                    
-                    h0 = x.view(num_layers, batch_size, hidden_size)
+
+                    # Reshape for RNN hidden state
+                    # Shape must be: (num_layers * num_directions, batch, hidden_size)
+                    h0 = x.view(num_layers * num_directions, batch_size, hidden_size)
 
                     # Initialize cell state for LSTM (not needed for GRU/RNN)
                     if isinstance(rnn_layer, nn.LSTM):
