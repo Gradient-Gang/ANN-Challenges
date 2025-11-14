@@ -1152,7 +1152,8 @@ class FinalPipeline:
             "LearningRate", 1e-5, 1e-2, log=True)
         archParams["RegularizationWeight"] = trial.suggest_float(
             "RegularizationWeight", 1e-3, 1e1, log=True)
-        archParams["ClassWeightsPath"] = "../dataset/PirateProcessed/class_weights.yaml"
+        archParams["ClassWeightsPath"] = self.data_params.get(
+            'class_weights_path', "../dataset/PirateProcessed/class_weights.yaml")
 
         # Maximum training epochs (early stopping may terminate earlier)
         max_epochs = 100
