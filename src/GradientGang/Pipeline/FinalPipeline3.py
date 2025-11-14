@@ -1,4 +1,6 @@
-from GradientGang.Pipeline.SubmissionGenerator.WindowedSubmissionGenerator import WindowedSubmissionGenerator
+from GradientGang.Pipeline.SubmissionGenerator.WindowedSubmissionGenerator import (
+    WindowedSubmissionGenerator,
+)
 from GradientGang.Pipeline.Utils.EnsembleModels import EnsembleModel
 from GradientGang.Pipeline.Utils.ParameterInterpreter import ParameterInterpreter
 from GradientGang.Pipeline.Architectures.WindowedModelWrapper import (
@@ -11,6 +13,7 @@ from GradientGang.Pipeline.Architectures.Direct import Direct
 from GradientGang.Pipeline.DataLoader.DataLoader import DataModule
 import optuna
 import torch
+import copy
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -18,6 +21,7 @@ from torchmetrics import F1Score
 import warnings
 import dotenv
 import os
+import glob
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
@@ -27,7 +31,7 @@ from datetime import datetime
 warnings.filterwarnings("ignore")
 
 
-class FinalPipeline2:
+class FinalPipeline3:
 
     def __init__(self, params: dict):
         self.params = params
@@ -100,12 +104,12 @@ class FinalPipeline2:
             sampler=optuna.samplers.TPESampler(seed=42),
             pruner=optuna.pruners.MedianPruner(
                 n_startup_trials=5,  # Number of trials before pruning starts
-                n_warmup_steps=5,     # Steps to wait before checking for pruning
-                interval_steps=1      # Check pruning at every step
+                n_warmup_steps=5,  # Steps to wait before checking for pruning
+                interval_steps=1,  # Check pruning at every step
             ),
             study_name=self.project_name + self.study_name,
             storage=self.storage,
-            load_if_exists=True  # Resume from existing study if available
+            load_if_exists=True,  # Resume from existing study if available
         )
 
         print("✓ Study created/loaded successfully!")
@@ -134,35 +138,57 @@ class FinalPipeline2:
         print(f"Direction: {study.direction}")
         print(f"Total trials: {len(study.trials)}")
         print(
-            f"Completed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}")
+            f"Completed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}"
+        )
         print(
-            f"Failed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])}")
+            f"Failed trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])}"
+        )
         print(
-            f"Pruned trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])}")
+            f"Pruned trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])}"
+        )
         print(
-            f"Running trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.RUNNING])}")
+            f"Running trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.RUNNING])}"
+        )
 
         if len(study.trials) > 0:
             completed_trials = [
-                t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+                t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
+            ]
             if completed_trials:
                 print(f"\n✓ Best trial: {study.best_trial.number}")
                 print(f"✓ Best F1 score: {study.best_value:.4f}")
                 print(f"\nTop 5 trials:")
                 sorted_trials = sorted(
-                    completed_trials, key=lambda t: t.value, reverse=True)[:5]
+                    completed_trials, key=lambda t: t.value, reverse=True
+                )[:5]
                 for i, trial in enumerate(sorted_trials, 1):
-                    arch = trial.params.get('MacroArchitecture', 'Unknown')
-                    enc = trial.params.get('architectureType', 'Unknown')
+                    arch = trial.params.get("MacroArchitecture", "Unknown")
+                    enc = trial.params.get("architectureType", "Unknown")
                     print(
-                        f"  {i}. Trial {trial.number}: F1={trial.value:.4f} | {arch} | {enc}")
+                        f"  {i}. Trial {trial.number}: F1={trial.value:.4f} | {arch} | {enc}"
+                    )
 
             print("\n📊 Trial states (last 10):")
             for trial in study.trials[-10:]:
-                state_symbol = "✓" if trial.state == optuna.trial.TrialState.COMPLETE else "✗" if trial.state == optuna.trial.TrialState.FAIL else "⊗" if trial.state == optuna.trial.TrialState.PRUNED else "⟳"
-                value_str = f"F1={trial.value:.4f}" if trial.value is not None else "N/A"
+                state_symbol = (
+                    "✓"
+                    if trial.state == optuna.trial.TrialState.COMPLETE
+                    else (
+                        "✗"
+                        if trial.state == optuna.trial.TrialState.FAIL
+                        else (
+                            "⊗"
+                            if trial.state == optuna.trial.TrialState.PRUNED
+                            else "⟳"
+                        )
+                    )
+                )
+                value_str = (
+                    f"F1={trial.value:.4f}" if trial.value is not None else "N/A"
+                )
                 print(
-                    f"  {state_symbol} Trial {trial.number}: {trial.state.name} | {value_str}")
+                    f"  {state_symbol} Trial {trial.number}: {trial.state.name} | {value_str}"
+                )
         else:
             print("\n⚠️ No trials found in this study. Run optimization to start!")
 
@@ -200,11 +226,15 @@ class FinalPipeline2:
             print(f"  {key}: {value}")
 
     # Architecture Setup Methods
-    def setUpEncoder(self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict):
+    def setUpEncoder(
+        self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict
+    ):
         """
         Configure encoder architecture based on Optuna trial suggestions.
 
-        This method sets up the time series encoder (Recurrent/Conv1d/MultiScaleCNN for sequential data)
+        This method sets up both:
+        1. Global feature encoder (feedforward layers for tabular features)
+        2. Time series encoder (Recurrent/Conv1d/MultiScaleCNN for sequential data)
 
         Supported time series encoder types:
         - Recurrent: LSTM/GRU with configurable layers, hidden dimensions, bidirectionality
@@ -215,28 +245,76 @@ class FinalPipeline2:
             trial (optuna.Trial): Optuna trial object for hyperparameter suggestions
             architectureParameters (dict): Dictionary to store architecture configuration
             datasetInfo (dict): Dataset metadata containing:
+                - globalFeaturesShape: Shape of global/tabular features
                 - timeSeriesShape: Shape of time series data (channels, length)
 
         Returns:
             dict: Updated architectureParameters with added keys:
+                - GlobalFFEncoderParams: Configuration for global feature encoder
                 - EncoderParams: Configuration for time series encoder
 
         Note:
-            The encoder output is flattened before being passed to the feedforward head.
+            The encoder output is flattened and will be concatenated with global
+            feature embeddings before being passed to the feedforward head.
         """
+        # First setup global feature encoder
+        globalInputDim = datasetInfo["globalFeaturesShape"][0]
+        globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 80)
+        globalNumLayers = trial.suggest_int("globalNumLayers", 1, 3)
+        globalDropout = trial.suggest_float("globalDropout", 0.0, 0.5)
+        globalActivation = trial.suggest_categorical(
+            "globalActivation", ["ReLU", "LeakyReLU", "GELU"]
+        )
+
+        # Build global feature encoder layers
+        globalLayerList = []
+        currentDim = globalInputDim
+        for i in range(globalNumLayers):
+            nextDim = (
+                globalEmbeddingDim
+                if i == globalNumLayers - 1
+                else trial.suggest_int(f"globalHiddenDim_{i}", 32, 128)
+            )
+            globalLayerList.append(
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": currentDim,
+                        "out_features": nextDim,
+                        "bias": True,
+                    },
+                }
+            )
+            if globalDropout > 0 and i < globalNumLayers - 1:
+                globalLayerList.append(
+                    {
+                        "name": "Dropout",
+                        "params": {
+                            "p": globalDropout,
+                            "inplace": False,
+                        },
+                    }
+                )
+            currentDim = nextDim
+
+        globalEncoderParams = {
+            "activation_function": globalActivation,
+            "layer_type": globalLayerList,
+        }
+        architectureParameters["GlobalFFEncoderParams"] = globalEncoderParams
+
         # Setup time series encoder - now supports Recurrent, Conv1d, and MultiScaleCNN
         architectureType = trial.suggest_categorical(
-            "architectureType", ["Recurrent"]
+            "architectureType", ["Recurrent", "Conv1d", "MultiScaleCNN"]
         )
 
         timeSeriesEncoderParams = {}
 
         if architectureType == "Recurrent":
-            rnnType = trial.suggest_categorical("rnnType", ["GRU"])
+            rnnType = trial.suggest_categorical("rnnType", ["LSTM", "GRU"])
             hiddenDim = trial.suggest_int("hiddenDim", 100, 300)
-            numLayers = trial.suggest_int("numLayers", 1, 2)
-            bidirectional = trial.suggest_categorical(
-                "bidirectional", [False, True])
+            numLayers = trial.suggest_int("numLayers", 1, 3)
+            bidirectional = trial.suggest_categorical("bidirectional", [False, True])
             dropout = trial.suggest_float("recurrentDropout", 0.0, 0.5)
             activationFunction = trial.suggest_categorical(
                 "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
@@ -294,8 +372,7 @@ class FinalPipeline2:
                     }
                 )
                 # Add pooling after each conv
-                poolType = trial.suggest_categorical(
-                    f"poolType_{i}", ["max", "avg"])
+                poolType = trial.suggest_categorical(f"poolType_{i}", ["max", "avg"])
                 if poolType == "max":
                     layerList.append(
                         {
@@ -344,10 +421,8 @@ class FinalPipeline2:
 
         elif architectureType == "MultiScaleCNN":
             # Multi-scale CNN architecture (Inception-style)
-            numMultiScaleLayers = trial.suggest_int(
-                "numMultiScaleLayers", 1, 2)
-            useDilation = trial.suggest_categorical(
-                "useDilation", [True, False])
+            numMultiScaleLayers = trial.suggest_int("numMultiScaleLayers", 1, 2)
+            useDilation = trial.suggest_categorical("useDilation", [True, False])
             kernelSizesProfiles = [(3, 5, 7), (3, 7, 11), (5, 9, 13)]
             kernelSizesIndex = trial.suggest_int(
                 "kernelSizesIndex", 0, len(kernelSizesProfiles) - 1
@@ -364,8 +439,7 @@ class FinalPipeline2:
             layerList = []
             currentChannels = inputChannels
             for i in range(numMultiScaleLayers):
-                branchChannels = trial.suggest_int(
-                    f"branchChannels_{i}", 32, 128)
+                branchChannels = trial.suggest_int(f"branchChannels_{i}", 32, 128)
                 poolingType = trial.suggest_categorical(
                     f"poolingType_{i}", ["max", "avg", "none"]
                 )
@@ -413,11 +487,14 @@ class FinalPipeline2:
         architectureParameters["EncoderParams"] = timeSeriesEncoderParams
         return architectureParameters
 
-    def setUpFeedForwardHead(self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict):
+    def setUpFeedForwardHead(
+        self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict
+    ):
         """
         Configure the feedforward classification head.
 
-        The feedforward head takes the encoder output and produces class predictions.
+        The feedforward head takes the concatenated output from both encoders
+        (time series + global features) and produces class predictions.
 
         The architecture consists of:
         - Multiple fully connected layers with configurable dimensions
@@ -428,6 +505,7 @@ class FinalPipeline2:
         Args:
             trial (optuna.Trial): Optuna trial object for hyperparameter suggestions
             architectureParameters (dict): Architecture configuration containing:
+                - GlobalFFEncoderParams: Global encoder config (to get embedding dim)
                 - EncoderParams: Time series encoder config (to calculate output size)
             datasetInfo (dict): Dataset metadata (may be used for dimension calculations)
 
@@ -439,6 +517,10 @@ class FinalPipeline2:
             The final output layer (num_classes) is automatically added by the
             Direct or LightningAutoencoder class based on OutputDim parameter.
         """
+        globalEmbeddingDim = architectureParameters["GlobalFFEncoderParams"][
+            "layer_type"
+        ][-1]["params"]["out_features"]
+
         # Calculate encoder output size based on architecture type
         encoderParams = architectureParameters["EncoderParams"]
         firstLayer = encoderParams["layer_type"][0]
@@ -473,8 +555,7 @@ class FinalPipeline2:
             if lastMultiScaleLayer:
                 # After AdaptiveAvgPool1d(1) and Flatten, output size = branch_channels * num_branches
                 branchChannels = lastMultiScaleLayer["params"]["branch_channels"]
-                numBranches = len(
-                    lastMultiScaleLayer["params"]["kernel_sizes"])
+                numBranches = len(lastMultiScaleLayer["params"]["kernel_sizes"])
                 encoderOutputSize = branchChannels * numBranches
             else:
                 encoderOutputSize = 64  # Fallback
@@ -482,7 +563,7 @@ class FinalPipeline2:
             # Fallback
             encoderOutputSize = 64
 
-        combinedInputSize = encoderOutputSize
+        combinedInputSize = encoderOutputSize + globalEmbeddingDim
 
         # Suggest feedforward head architecture
         numHiddenLayers = trial.suggest_int("numFFLayers", 1, 3)
@@ -529,7 +610,9 @@ class FinalPipeline2:
         architectureParameters["FeedForwardParams"] = feedForwardParams
         return architectureParameters
 
-    def setUpDecoder(self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict):
+    def setUpDecoder(
+        self, trial: optuna.Trial, architectureParameters: dict, datasetInfo: dict
+    ):
         """
         Configure decoder architecture for autoencoder models.
 
@@ -547,16 +630,21 @@ class FinalPipeline2:
           * Mirrors multi-scale architecture in reverse
           * Reconstructs to original input dimensions
 
+        Also sets up global feature decoder (mirrors global encoder).
+
         Args:
             trial (optuna.Trial): Optuna trial object for hyperparameter suggestions
             architectureParameters (dict): Architecture configuration containing:
                 - EncoderParams: Time series encoder config to mirror
+                - GlobalFFEncoderParams: Global encoder config to mirror
             datasetInfo (dict): Dataset metadata containing:
                 - timeSeriesShape: Target reconstruction shape (channels, length)
+                - globalFeaturesShape: Target global features shape
 
         Returns:
             dict: Updated architectureParameters with added keys:
                 - DecoderParams: Configuration for time series decoder
+                - GlobalFFDecoderParams: Configuration for global feature decoder
 
         Note:
             For RNN decoders, the architecture supports teacher forcing during
@@ -616,7 +704,7 @@ class FinalPipeline2:
                     "params": {
                         "input_size": outputSize,  # 34 (for teacher forcing)
                         "hidden_size": hiddenDim,  # Keep encoder's hidden size
-                        "num_layers": numLayers,    # MUST match encoder layers
+                        "num_layers": numLayers,  # MUST match encoder layers
                         "bias": True,
                         "batch_first": True,
                         "dropout": dropout if numLayers > 1 else 0.0,
@@ -627,8 +715,7 @@ class FinalPipeline2:
 
             # Linear projection: account for bidirectional output
             # If bidirectional, RNN outputs hidden_size * 2
-            decoder_output_features = hiddenDim * \
-                (2 if decoder_bidirectional else 1)
+            decoder_output_features = hiddenDim * (2 if decoder_bidirectional else 1)
             layerList.append(
                 {
                     "name": "Linear",
@@ -697,8 +784,7 @@ class FinalPipeline2:
                     outChannels = datasetInfo["timeSeriesShape"][0]  # 34
                 else:
                     # Output channels should be input channels of the corresponding encoder layer
-                    outChannels = reversedConvLayers[i +
-                                                     1]["params"]["out_channels"]
+                    outChannels = reversedConvLayers[i + 1]["params"]["out_channels"]
 
                 # Add upsampling with ConvTranspose1d
                 # Use stride=2 to upsample if there was pooling in encoder
@@ -842,7 +928,50 @@ class FinalPipeline2:
             # Fallback
             decoderParams = encoderParams
 
+        # Mirror global decoder - reverse the encoder architecture
+        globalEncoderParams = architectureParameters["GlobalFFEncoderParams"]
+        globalEncoderLayers = globalEncoderParams["layer_type"]
+
+        # Get only Linear layers from encoder (skip Dropout)
+        globalEncoderLinearLayers = [
+            l for l in globalEncoderLayers if l["name"] == "Linear"
+        ]
+
+        # Reverse the architecture
+        globalDecoderLayerList = []
+        for i, encoderLayer in enumerate(reversed(globalEncoderLinearLayers)):
+            # Swap in_features and out_features
+            inFeatures = encoderLayer["params"]["out_features"]
+            outFeatures = encoderLayer["params"]["in_features"]
+
+            globalDecoderLayerList.append(
+                {
+                    "name": "Linear",
+                    "params": {
+                        "in_features": inFeatures,
+                        "out_features": outFeatures,
+                        "bias": True,
+                    },
+                }
+            )
+
+            # Add dropout between layers (not after last)
+            if i < len(globalEncoderLinearLayers) - 1:
+                # Find dropout from encoder if it exists
+                for encLayer in globalEncoderLayers:
+                    if encLayer["name"] == "Dropout":
+                        globalDecoderLayerList.append(
+                            {"name": "Dropout", "params": encLayer["params"]}
+                        )
+                        break
+
+        globalDecoderParams = {
+            "activation_function": globalEncoderParams["activation_function"],
+            "layer_type": globalDecoderLayerList,
+        }
+
         architectureParameters["DecoderParams"] = decoderParams
+        architectureParameters["GlobalFFDecoderParams"] = globalDecoderParams
         return architectureParameters
 
     def apply_he_initialization(self, model, activation_type="ReLU"):
@@ -856,7 +985,7 @@ class FinalPipeline2:
         Applied to:
         - Linear layers: Uses kaiming_normal_ with appropriate nonlinearity
         - Conv1d layers: Uses kaiming_normal_ with appropriate nonlinearity
-        - RNN layers (LSTM/GRU): 
+        - RNN layers (LSTM/GRU):
           * Input-hidden weights: He initialization
           * Hidden-hidden weights: Orthogonal initialization (better for recurrence)
           * Biases: Small constant (0.01)
@@ -925,7 +1054,7 @@ class FinalPipeline2:
                         if isinstance(module, torch.nn.LSTM):
                             n = param.data.size(0)
                             # Forget gate bias
-                            param.data[n // 4: n // 2].fill_(1.0)
+                            param.data[n // 4 : n // 2].fill_(1.0)
 
     def objective_kfold(self, trial: optuna.trial.Trial) -> float:
         """
@@ -970,18 +1099,16 @@ class FinalPipeline2:
         """
         # ==================== STEP 1: Suggest Macro Architecture ====================
         # Choose between direct classification or autoencoder-based approach
-        macroArchitecture = trial.suggest_categorical(
-            "MacroArchitecture", ["Direct"])
+        macroArchitecture = "Direct"
 
         # ==================== STEP 2: Configure Data Windowing ====================
         # Windowing splits time series into smaller overlapping segments (MODEL-LEVEL, not data-loader level)
         # This can help the model learn from more samples and capture local patterns
-        use_windowing = trial.suggest_categorical(
-            "use_windowing", [True])
+        use_windowing = True
 
         if use_windowing:
             # Window size: how much of the sequence to process at once
-            window_size = trial.suggest_int("window_size", 10, 20)
+            window_size = 10
 
             # Stride: step size between windows (lower = more overlap)
             # Use categorical to prefer common overlap patterns
@@ -991,15 +1118,11 @@ class FinalPipeline2:
             stride = int(window_size * stride_ratio)
 
             # Aggregation method: how to combine window predictions
-            aggregation_method = trial.suggest_categorical(
-                "aggregation_method",
-                ["avg_probs", "avg_logits", "majority_vote", "max_confidence"],
-            )
+            aggregation_method =  "majority_vote"
 
             # Window loss weight: auxiliary supervision on individual windows
             # 0 = only sample-level loss, >0 = also supervise individual windows
-            window_loss_weight = trial.suggest_float(
-                "window_loss_weight", 0.0, 0.5)
+            window_loss_weight = trial.suggest_float("window_loss_weight", 0.0, 0.5)
         else:
             window_size = 160
             stride = 160
@@ -1019,8 +1142,7 @@ class FinalPipeline2:
         n_folds = kfold_data_params["n_folds"]
 
         kfold_dataLoader = DataModule(params=kfold_data_params)
-        kfold_dataLoader.setup(
-            stage="fit", includeTestInTrain=includeTestInTrain)
+        kfold_dataLoader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = kfold_dataLoader.getDatasetInfo()
 
         # ==================== STEP 4: Build Architecture Configuration ====================
@@ -1037,25 +1159,31 @@ class FinalPipeline2:
         if macroArchitecture == "Autoencoder":
             archParams = self.setUpDecoder(trial, archParams, datasetInfo)
             archParams["ReconstructionLossWeight"] = trial.suggest_float(
-                "ReconstructionLossWeight", 0.1, 0.9)
+                "ReconstructionLossWeight", 0.1, 0.9
+            )
 
         # ==================== STEP 5: Configure Training Parameters ====================
         # Common parameters for all architectures
         archParams["OutputDim"] = 3  # Number of classes (pain levels)
         archParams["LearningRate"] = trial.suggest_float(
-            "LearningRate", 1e-5, 1e-2, log=True)
+            "LearningRate", 1e-5, 1e-2, log=True
+        )
         archParams["RegularizationWeight"] = trial.suggest_float(
-            "RegularizationWeight", 1e-3, 1e1, log=True)
+            "RegularizationWeight", 1e-3, 1e1, log=True
+        )
         archParams["ClassWeightsPath"] = self.data_params.get(
-            'class_weights_path', "../dataset/PirateProcessed/class_weights.yaml")
+            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
+        )
 
         # Maximum training epochs (early stopping may terminate earlier)
         max_epochs = 100
 
         # ==================== STEP 6: Configure Learning Rate Scheduler ====================
         # Different schedulers for adaptive learning rate adjustment
-        scheduler_type = trial.suggest_categorical("SchedulerType", [
-                                                   "ReduceLROnPlateau", "CosineAnnealing", "CosineAnnealingWarmRestarts"])
+        scheduler_type = trial.suggest_categorical(
+            "SchedulerType",
+            ["ReduceLROnPlateau", "CosineAnnealing", "CosineAnnealingWarmRestarts"],
+        )
         archParams["SchedulerType"] = scheduler_type
 
         if scheduler_type == "ReduceLROnPlateau":
@@ -1072,20 +1200,19 @@ class FinalPipeline2:
             # Cosine annealing: smooth LR decay following cosine curve
             # Full cycle matches training duration
             archParams["T_max"] = max_epochs
-            archParams["eta_min"] = trial.suggest_float(
-                "eta_min", 1e-7, 1e-5, log=True)
+            archParams["eta_min"] = trial.suggest_float("eta_min", 1e-7, 1e-5, log=True)
         elif scheduler_type == "CosineAnnealingWarmRestarts":
             # Cosine annealing with periodic restarts (helps escape local minima)
             archParams["T_0"] = trial.suggest_int(
-                "T_0", 5, 20)  # Initial restart period
+                "T_0", 5, 20
+            )  # Initial restart period
             archParams["T_mult"] = trial.suggest_int(
-                "T_mult", 1, 3)  # Period multiplier after restart
-            archParams["eta_min"] = trial.suggest_float(
-                "eta_min", 1e-7, 1e-5, log=True)
+                "T_mult", 1, 3
+            )  # Period multiplier after restart
+            archParams["eta_min"] = trial.suggest_float("eta_min", 1e-7, 1e-5, log=True)
 
         # Early stopping: stops training if no improvement after patience epochs
-        early_stopping_patience = trial.suggest_int(
-            "EarlyStoppingPatience", 10, 20)
+        early_stopping_patience = trial.suggest_int("EarlyStoppingPatience", 10, 20)
 
         # ==================== STEP 7: K-Fold Cross-Validation Training ====================
         # Track validation scores across all folds
@@ -1095,20 +1222,24 @@ class FinalPipeline2:
         for fold_idx in range(n_folds):
             # Prepare data for this specific fold (different train/val split)
             kfold_dataLoader.setup_fold(
-                fold_idx, include_test_in_train=includeTestInTrain)
+                fold_idx, include_test_in_train=includeTestInTrain
+            )
             trainLoader = kfold_dataLoader.train_dataloader()
             valLoader = kfold_dataLoader.val_dataloader()
 
-            # Create a fresh model instance for this fold (no weight sharing between folds)r this fold (no weight sharing between folds)
+            # Create a fresh model instance for this fold (no weight sharing between folds)
+            # CRITICAL: Deep copy archParams to prevent mutation across folds
+            # The Direct/Autoencoder classes modify the params dict (e.g., appending output layer)
+            archParams_copy = copy.deepcopy(archParams)
+
             if macroArchitecture == "Direct":
-                base_model = Direct(archParams)
+                base_model = Direct(archParams_copy)
             else:
-                base_model = LightningAutoencoder(archParams)
+                base_model = LightningAutoencoder(archParams_copy)
 
             # Apply He initialization to base model
             ff_activation = archParams["FeedForwardParams"]["activation_function"]
-            self.apply_he_initialization(
-                base_model, activation_type=ff_activation)
+            self.apply_he_initialization(base_model, activation_type=ff_activation)
 
             # Wrap with WindowedModelWrapper if windowing is enabled
             if use_windowing:
@@ -1124,28 +1255,32 @@ class FinalPipeline2:
 
             # Add early stopping callback
             early_stopping_callback = EarlyStopping(
-                monitor="val_prediction_loss",
+                monitor="val_F1",
                 patience=early_stopping_patience,
-                mode="min",
+                mode="max",
                 verbose=False,
             )
 
             # Tensorboard Logging
+            # CRITICAL: version=None disables automatic version numbering
+            # This ensures each trial+fold combination uses the same directory,
+            # preventing checkpoint confusion from multiple runs
             logger = TensorBoardLogger(
                 save_dir=f"FinalPipelineLogs/Study_{trial.study.study_name}",
                 name=f"{trial.study.study_name}_trial_{trial.number}_fold_{fold_idx}",
-                log_graph = True,
+                version=None,  # Disable version numbering to prevent directory proliferation
+                log_graph=True,
             )
 
             # Model checkpointing: saves best model based on validation F1
             # Save checkpoints in the same directory as TensorBoard logs
             checkpoint_callback = ModelCheckpoint(
                 dirpath=logger.log_dir + "/checkpoints",  # Save in same dir as logs
-                monitor="val_prediction_loss",
-                mode="min",
+                monitor="val_F1",
+                mode="max",
                 save_top_k=1,
                 filename=f"trial-{trial.number}-fold-{fold_idx}-"
-                + "{epoch:02d}-{val_prediction_loss:.3f}",
+                + "{epoch:02d}-{val_F1:.3f}",
                 verbose=False,
             )
 
@@ -1164,13 +1299,45 @@ class FinalPipeline2:
             try:
                 trainer.fit(model, trainLoader, valLoader)
 
-                # Get best validation F1 for this fold
+                # Get best validation F1 for this fold from checkpoint callback
                 best_f1 = (
                     checkpoint_callback.best_model_score.item()
                     if checkpoint_callback.best_model_score is not None
                     else 0.0
                 )
                 fold_scores.append(best_f1)
+
+                # Validate architecture consistency after training
+                if checkpoint_callback.best_model_path:
+                    # Extract expected architecture from trial parameters
+                    expected_ff_layers = trial.params.get("numFFLayers", None) + 1
+
+                    # Get actual architecture from checkpoint
+                    actual_fingerprint = self._get_architecture_fingerprint(
+                        checkpoint_callback.best_model_path
+                    )
+                    actual_ff_layers = actual_fingerprint.get(
+                        "feedforward_layers", None
+                    )
+
+                    # Validate architecture matches expectations
+                    if expected_ff_layers is not None and actual_ff_layers is not None:
+                        if actual_ff_layers != expected_ff_layers:
+                            print(
+                                f"⚠️ WARNING: Architecture mismatch detected after training fold {fold_idx}!"
+                            )
+                            print(f"   Expected FF layers: {expected_ff_layers}")
+                            print(f"   Actual FF layers: {actual_ff_layers}")
+                            print(
+                                f"   Checkpoint: {checkpoint_callback.best_model_path}"
+                            )
+                            print(
+                                f"   This suggests the checkpoint may be from a previous trial/run!"
+                            )
+                        else:
+                            print(
+                                f"✓ Fold {fold_idx} architecture validated: {expected_ff_layers} FF layers"
+                            )
 
             except Exception as e:
                 print(f"Fold {fold_idx} failed with error: {e}")
@@ -1185,18 +1352,15 @@ class FinalPipeline2:
         # Store detailed results for later analysis
         # Convert to compact string format to avoid database size limits
         try:
-            fold_scores_str = ",".join(
-                [f"{score:.6f}" for score in fold_scores])
+            fold_scores_str = ",".join([f"{score:.6f}" for score in fold_scores])
             # Individual fold scores as CSV string
             trial.set_user_attr("fold_scores", fold_scores_str)
-            trial.set_user_attr("mean_f1", float(
-                mean_f1))       # Mean across folds
+            trial.set_user_attr("mean_f1", float(mean_f1))  # Mean across folds
             # Standard deviation (stability measure)
             trial.set_user_attr("std_f1", float(std_f1))
         except Exception as e:
             # If database fails, log warning but continue (metrics are still returned)
-            print(
-                f"⚠️ Warning: Could not store user attributes in database: {e}")
+            print(f"⚠️ Warning: Could not store user attributes in database: {e}")
 
         # Report score to Optuna for pruning decisions
         trial.report(mean_f1, step=0)
@@ -1208,7 +1372,9 @@ class FinalPipeline2:
         # Return mean F1 as the optimization objective
         return mean_f1
 
-    def _retrain_best_model(self, trial_wrapper, archParams, macroArch, data_loader, best_params):
+    def _retrain_best_model(
+        self, trial_wrapper, archParams, macroArch, data_loader, best_params
+    ):
         """
         Retrain the best model from scratch using Optuna's best hyperparameters.
 
@@ -1228,25 +1394,26 @@ class FinalPipeline2:
         print("Retraining model on full dataset...")
 
         # Create fresh model instance
+        # CRITICAL: Deep copy archParams to prevent mutation
+        archParams_copy = copy.deepcopy(archParams)
         if macroArch == "Direct":
-            base_model = Direct(params=archParams)
+            base_model = Direct(params=archParams_copy)
         else:
-            base_model = LightningAutoencoder(params=archParams)
+            base_model = LightningAutoencoder(params=archParams_copy)
 
         # Apply He initialization
         ff_activation = archParams["FeedForwardParams"]["activation_function"]
         self.apply_he_initialization(base_model, activation_type=ff_activation)
 
         # Wrap with WindowedModelWrapper if windowing was used during optimization
-        use_windowing = best_params.get('use_windowing', False)
+        use_windowing = best_params.get("use_windowing", False)
         if use_windowing:
             print("Wrapping with WindowedModelWrapper for training...")
-            window_size = best_params.get('window_size', 160)
-            stride_ratio = best_params.get('stride_ratio', 1.0)
+            window_size = best_params.get("window_size", 160)
+            stride_ratio = best_params.get("stride_ratio", 1.0)
             stride = int(window_size * stride_ratio)
-            aggregation_method = best_params.get(
-                'aggregation_method', 'avg_probs')
-            window_loss_weight = best_params.get('window_loss_weight', 0.0)
+            aggregation_method = best_params.get("aggregation_method", "avg_probs")
+            window_loss_weight = best_params.get("window_loss_weight", 0.0)
 
             training_model = WindowedModelWrapper(
                 base_model=base_model,
@@ -1260,13 +1427,13 @@ class FinalPipeline2:
 
         # Prepare combined training data (train all folds together for best performance)
         includeTestInTrain = macroArch == "Autoencoder"
-        data_loader.setup(stage='fit', includeTestInTrain=includeTestInTrain)
+        data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         train_loader = data_loader.train_dataloader()
         val_loader = data_loader.val_dataloader()
 
         # Get training parameters
         max_epochs = 100
-        early_stopping_patience = best_params.get('EarlyStoppingPatience', 15)
+        early_stopping_patience = best_params.get("EarlyStoppingPatience", 15)
 
         # Setup callbacks
         early_stopping_callback = EarlyStopping(
@@ -1297,7 +1464,8 @@ class FinalPipeline2:
         print(f"Early stopping patience: {early_stopping_patience}")
         if use_windowing:
             print(
-                f"Using windowing: window_size={window_size}, stride={stride}, aggregation={aggregation_method}")
+                f"Using windowing: window_size={window_size}, stride={stride}, aggregation={aggregation_method}"
+            )
         print("-" * 60)
 
         # Train the model (with or without windowing wrapper)
@@ -1305,8 +1473,7 @@ class FinalPipeline2:
 
         print("-" * 60)
         print(f"✓ Retraining completed!")
-        print(
-            f"Best validation F1: {checkpoint_callback.best_model_score:.4f}")
+        print(f"Best validation F1: {checkpoint_callback.best_model_score:.4f}")
 
         # Load best checkpoint from retraining
         best_checkpoint = checkpoint_callback.best_model_path
@@ -1328,12 +1495,571 @@ class FinalPipeline2:
                 # Load the base model directly
                 if macroArch == "Direct":
                     base_model = Direct.load_from_checkpoint(
-                        best_checkpoint, params=archParams)
+                        best_checkpoint, params=archParams
+                    )
                 else:
                     base_model = LightningAutoencoder.load_from_checkpoint(
-                        best_checkpoint, params=archParams)
+                        best_checkpoint, params=archParams
+                    )
 
         return base_model
+
+    def _get_architecture_fingerprint(self, checkpoint_path: str) -> dict:
+        """
+        Extract architecture fingerprint from checkpoint to verify consistency.
+
+        Args:
+            checkpoint_path: Path to checkpoint file
+
+        Returns:
+            dict: Architecture fingerprint with layer counts and types
+        """
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            state_dict = checkpoint.get("state_dict", {})
+
+            # Count layers by type
+            encoder_layers = len(
+                [k for k in state_dict.keys() if k.startswith("encoder.")]
+            )
+            feedforward_layers = len(
+                [
+                    k
+                    for k in state_dict.keys()
+                    if k.startswith("feedforward.network.") and ".weight" in k
+                ]
+            )
+            decoder_layers = len(
+                [k for k in state_dict.keys() if k.startswith("decoder.")]
+            )
+            global_encoder_layers = len(
+                [k for k in state_dict.keys() if k.startswith("global_encoder.")]
+            )
+
+            fingerprint = {
+                "encoder_layers": encoder_layers,
+                "feedforward_layers": feedforward_layers,
+                "decoder_layers": decoder_layers,
+                "global_encoder_layers": global_encoder_layers,
+                "total_params": len(state_dict),
+            }
+
+            return fingerprint
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract architecture fingerprint: {e}")
+            return {}
+
+    def _search_fold_checkpoint(
+        self, trial_number: int, fold_idx: int, study_name: str
+    ):
+        """
+        Search for checkpoint file for specific trial and fold.
+
+        Args:
+            trial_number: Optuna trial number
+            fold_idx: Fold index (0 to n_folds-1)
+            study_name: Optional study name to restrict search (recommended to avoid cross-study conflicts)
+
+        Returns:
+            str or None: Path to best checkpoint or None if not found
+        """
+        # Use study name if provided to avoid finding checkpoints from wrong study
+        if study_name == None:
+            raise ValueError("study_name must be provided to search for checkpoints.")
+
+        study_pattern = f"Study_{study_name}"
+        folderPattern = f"{study_name}_trial_{trial_number}_fold_{fold_idx}"
+
+        # Search patterns:
+        # 1. New format (no version directory): FinalPipelineLogs/.../checkpoints/
+        # 2. Old format (with version_0): FinalPipelineLogs/.../version_0/checkpoints/
+        patterns = [
+            f"FinalPipelineLogs/{study_pattern}/{folderPattern}/checkpoints/trial-{trial_number}-fold-{fold_idx}-*.ckpt",
+            f"FinalPipelineLogs/{study_pattern}/{folderPattern}/version_0/checkpoints/trial-{trial_number}-fold-{fold_idx}-*.ckpt",
+        ]
+
+        for pattern in patterns:
+            checkpoints = glob.glob(pattern, recursive=True)
+            if checkpoints:
+                # Select checkpoint with highest val_F1
+                if any("val_F1=" in ckpt for ckpt in checkpoints):
+                    return sorted(
+                        [c for c in checkpoints if "val_F1=" in c],
+                        key=lambda x: float(x.split("val_F1=")[1].split(".ckpt")[0]),
+                        reverse=True,
+                    )[0]
+                return checkpoints[0]
+
+        return None
+
+    def _load_fold_model(
+        self,
+        checkpoint_path,
+        archParams,
+        macroArch,
+        data_loader,
+        fold_idx,
+        expected_f1,
+        best_params,
+        threshold=0.95,
+    ):
+        """
+        Load and validate fold model from checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint file
+            expected_f1: Expected F1 score from original training
+            threshold: Minimum acceptable ratio (default 0.95)
+
+        Returns:
+            tuple: (model, actual_f1) if valid, None if degraded/failed
+        """
+        try:
+            # Load model
+            use_windowing = best_params.get("use_windowing", False)
+
+            if use_windowing:
+                # Load wrapped model
+                window_size = best_params.get("window_size", 160)
+                stride_ratio = best_params.get("stride_ratio", 1.0)
+                stride = int(window_size * stride_ratio)
+                aggregation_method = best_params.get("aggregation_method", "avg_probs")
+                window_loss_weight = best_params.get("window_loss_weight", 0.0)
+
+                # Create base model for initialization
+                # CRITICAL: Deep copy archParams to prevent mutation
+                archParams_copy = copy.deepcopy(archParams)
+                base_model = (
+                    Direct(params=archParams_copy)
+                    if macroArch == "Direct"
+                    else LightningAutoencoder(params=archParams_copy)
+                )
+
+                model = WindowedModelWrapper.load_from_checkpoint(
+                    checkpoint_path,
+                    base_model=base_model,
+                    window_size=window_size,
+                    stride=stride,
+                    aggregation_method=aggregation_method,
+                    window_loss_weight=window_loss_weight,
+                )
+            else:
+                # Load base model
+                # CRITICAL: Deep copy archParams to prevent mutation
+                archParams_copy = copy.deepcopy(archParams)
+                if macroArch == "Direct":
+                    model = Direct.load_from_checkpoint(
+                        checkpoint_path, params=archParams_copy
+                    )
+                else:
+                    model = LightningAutoencoder.load_from_checkpoint(
+                        checkpoint_path, params=archParams_copy
+                    )
+
+            # Validate performance
+            print(f"Validating fold {fold_idx} (expected F1: {expected_f1:.4f})...")
+
+            includeTestInTrain = macroArch == "Autoencoder"
+            data_loader.setup_fold(fold_idx, include_test_in_train=includeTestInTrain)
+            val_loader = data_loader.val_dataloader()
+
+            model.eval()
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = model.to(device)
+
+            # Compute F1 with torchmetrics
+            f1_metric = F1Score(task="multiclass", num_classes=3, average="macro").to(
+                device
+            )
+
+            with torch.no_grad():
+                for batch in val_loader:
+                    (timeSeries, globalFeatures), labels = batch
+                    timeSeries = timeSeries.to(device)
+                    globalFeatures = globalFeatures.to(device)
+                    labels = labels.to(device)
+
+                    outputs = model((timeSeries, globalFeatures))
+                    logits = outputs[0] if isinstance(outputs, tuple) else outputs
+                    preds = torch.argmax(logits, dim=1)
+
+                    f1_metric.update(preds, labels)
+
+            actual_f1 = f1_metric.compute().item()
+
+            # Check if expected_f1 is valid (should be between 0 and 1)
+            # If > 1, it's likely a loss value, not F1 - skip degradation check
+            if expected_f1 > 1.0:
+                print(
+                    f"⚠️ Fold {fold_idx}: Expected F1={expected_f1:.4f} is invalid (>1.0, likely a loss value)"
+                )
+                print(f"   Skipping degradation check. Actual F1={actual_f1:.4f}")
+                return model, actual_f1
+
+            min_acceptable_f1 = expected_f1 * threshold
+
+            if actual_f1 >= min_acceptable_f1:
+                print(f"✓ Fold {fold_idx} validated: F1={actual_f1:.4f}")
+                return model, actual_f1
+            else:
+                print(
+                    f"⚠️ Fold {fold_idx} degraded: F1={actual_f1:.4f} < {min_acceptable_f1:.4f}"
+                )
+                return None
+
+        except Exception as e:
+            print(f"❌ Error loading fold {fold_idx}:")
+            print(f"   Exception type: {type(e).__name__}")
+            print(f"   Error message: {e}")
+            import traceback
+
+            print(f"   Traceback:\n{traceback.format_exc()}")
+            return None
+
+    def _retrain_fold_model(
+        self, trial_wrapper, archParams, macroArch, data_loader, fold_idx, best_params
+    ):
+        """
+        Retrain model on specific fold.
+
+        Args:
+            fold_idx: Fold index to train on
+
+        Returns:
+            tuple: (trained_model, val_f1)
+        """
+        print(f"\n🔄 Retraining fold {fold_idx}...")
+        print(f"   MacroArchitecture: {macroArch}")
+        print(f"   Use windowing: {best_params.get('use_windowing', False)}")
+
+        try:
+            # Create base model
+            # CRITICAL: Deep copy archParams to prevent mutation
+            archParams_copy = copy.deepcopy(archParams)
+            base_model = (
+                Direct(params=archParams_copy)
+                if macroArch == "Direct"
+                else LightningAutoencoder(params=archParams_copy)
+            )
+
+            # Apply He initialization
+            ff_activation = archParams["FeedForwardParams"]["activation_function"]
+            self.apply_he_initialization(base_model, activation_type=ff_activation)
+
+            # Wrap if windowing
+            use_windowing = best_params.get("use_windowing", False)
+            if use_windowing:
+                window_size = best_params.get("window_size", 160)
+                stride_ratio = best_params.get("stride_ratio", 1.0)
+                stride = int(window_size * stride_ratio)
+                aggregation_method = best_params.get("aggregation_method", "avg_probs")
+                window_loss_weight = best_params.get("window_loss_weight", 0.0)
+
+                training_model = WindowedModelWrapper(
+                    base_model=base_model,
+                    window_size=window_size,
+                    stride=stride,
+                    aggregation_method=aggregation_method,
+                    window_loss_weight=window_loss_weight,
+                )
+            else:
+                training_model = base_model
+
+            # Setup fold data
+            print(f"   Setting up fold data...")
+            includeTestInTrain = macroArch == "Autoencoder"
+            data_loader.setup_fold(fold_idx, include_test_in_train=includeTestInTrain)
+            train_loader = data_loader.train_dataloader()
+            val_loader = data_loader.val_dataloader()
+            print(
+                f"   Train batches: {len(train_loader)}, Val batches: {len(val_loader)}"
+            )
+
+            # Training parameters
+            max_epochs = 100
+            early_stopping_patience = best_params.get("EarlyStoppingPatience", 15)
+
+            # Setup callbacks
+            early_stopping_callback = EarlyStopping(
+                monitor="val_F1",
+                patience=early_stopping_patience,
+                mode="max",
+                verbose=False,
+            )
+
+            checkpoint_callback = ModelCheckpoint(
+                monitor="val_F1",
+                mode="max",
+                save_top_k=1,
+                filename=f"retrained-fold-{fold_idx}-" "{epoch:02d}-{val_F1:.3f}",
+                verbose=False,
+            )
+
+            # Create trainer
+            print(f"   Starting training (max {max_epochs} epochs)...")
+            trainer = Trainer(
+                max_epochs=max_epochs,
+                enable_progress_bar=False,
+                enable_model_summary=False,
+                callbacks=[early_stopping_callback, checkpoint_callback],
+                enable_checkpointing=True,
+            )
+
+            # Train
+            trainer.fit(training_model, train_loader, val_loader)
+
+            # Get best F1 score from training
+            best_f1 = (
+                checkpoint_callback.best_model_score.item()
+                if checkpoint_callback.best_model_score
+                else 0.0
+            )
+            print(f"   Training completed. Best F1: {best_f1:.4f}")
+
+            # Return the trained model directly (no need to reload from checkpoint)
+            # The model is already in memory and at its best state
+            print(f"✓ Fold {fold_idx} retrained successfully: F1={best_f1:.4f}")
+            return training_model, best_f1
+
+        except Exception as e:
+            print(f"❌ Error retraining fold {fold_idx}:")
+            print(f"   Exception type: {type(e).__name__}")
+            print(f"   Error message: {e}")
+            import traceback
+
+            print(f"   Traceback:\n{traceback.format_exc()}")
+            raise  # Re-raise to stop execution
+
+    def load_ensemble_model(self, performance_threshold=0.95, force_retrain=False):
+        """
+        Load K-fold ensemble from best trial with validation and retraining fallback.
+
+        Args:
+            performance_threshold: Minimum acceptable performance ratio (default 0.95)
+            force_retrain: If True, skip checkpoint loading and retrain all folds (default False)
+
+        Returns:
+            EnsembleModel: Weighted ensemble ready for inference
+        """
+        print("\n" + "=" * 60)
+        print("LOADING K-FOLD ENSEMBLE")
+        print("=" * 60)
+
+        # Get best trial
+        completed_trials = [
+            t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        if not completed_trials:
+            raise ValueError("No completed trials found in study")
+
+        best_trial = self.study.best_trial
+        best_params = best_trial.params
+
+        print(f"Best trial: {best_trial.number}")
+        print(f"Best mean F1: {best_trial.value:.4f}")
+        print(f"Architecture: {best_params.get('MacroArchitecture', 'Unknown')}")
+        print("-" * 60)
+
+        # Reconstruct architecture (same as load_best_model)
+        class TrialWrapper:
+            def __init__(self, params):
+                self.params = params
+
+            def suggest_categorical(self, name, choices):
+                return self.params[name]
+
+            def suggest_int(self, name, low, high, log=False):
+                return self.params[name]
+
+            def suggest_float(self, name, low, high, log=False):
+                return self.params[name]
+
+        trial_wrapper = TrialWrapper(best_params)
+
+        includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
+        data_loader = DataModule(params=self.data_params)
+        data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
+        datasetInfo = data_loader.getDatasetInfo()
+
+        print("Reconstructing architecture...")
+        archParams = {}
+        archParams = self.setUpEncoder(trial_wrapper, archParams, datasetInfo)
+        archParams = self.setUpFeedForwardHead(trial_wrapper, archParams, datasetInfo)
+
+        macroArch = best_params.get("MacroArchitecture", "Direct")
+        if macroArch == "Autoencoder":
+            archParams = self.setUpDecoder(trial_wrapper, archParams, datasetInfo)
+            archParams["ReconstructionLossWeight"] = best_params.get(
+                "ReconstructionLossWeight", 0.5
+            )
+
+        archParams["LearningRate"] = best_params["LearningRate"]
+        archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
+        archParams["OutputDim"] = 3
+        archParams["ClassWeightsPath"] = self.data_params.get(
+            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
+        )
+
+        # Add scheduler parameters
+        scheduler_type = best_params.get("SchedulerType", "ReduceLROnPlateau")
+        archParams["SchedulerType"] = scheduler_type
+        if scheduler_type == "ReduceLROnPlateau":
+            archParams["Patience"] = best_params.get("SchedulerPatience", 5)
+            archParams["SchedulerFactor"] = best_params.get("SchedulerFactor", 0.5)
+            archParams["SchedulerMinLR"] = best_params.get("SchedulerMinLR", 1e-6)
+        elif scheduler_type == "CosineAnnealing":
+            archParams["T_max"] = 100
+            archParams["eta_min"] = best_params.get("eta_min", 1e-6)
+        elif scheduler_type == "CosineAnnealingWarmRestarts":
+            archParams["T_0"] = best_params.get("T_0", 10)
+            archParams["T_mult"] = best_params.get("T_mult", 2)
+            archParams["eta_min"] = best_params.get("eta_min", 1e-6)
+
+        print("✓ Architecture reconstructed")
+
+        # Get expected fold scores
+        fold_scores_str = best_trial.user_attrs.get("fold_scores", "")
+        if fold_scores_str:
+            expected_fold_f1s = [float(x) for x in fold_scores_str.split(",")]
+        else:
+            print("⚠️ No fold scores found - skipping validation")
+            expected_fold_f1s = [None] * self.data_params["n_folds"]
+
+        n_folds = self.data_params["n_folds"]
+
+        # ==================== STEP 1: Find all checkpoints ====================
+        print(f"\n[STEP 1/3] Searching for checkpoints...")
+        print("-" * 60)
+        full_study_name = self.project_name + self.study_name
+        found_checkpoints = []
+
+        for fold_idx in range(n_folds):
+            ckpt_path = self._search_fold_checkpoint(
+                best_trial.number, fold_idx, full_study_name
+            )
+            found_checkpoints.append(ckpt_path)
+            if ckpt_path:
+                print(f"  Fold {fold_idx}: Found @ {ckpt_path}")
+            else:
+                print(f"  Fold {fold_idx}: Not found")
+
+        print(
+            f"\nCheckpoints found: {sum(1 for cp in found_checkpoints if cp is not None)}/{n_folds}"
+        )
+
+        # ==================== STEP 2: Validate architecture consistency ====================
+        # Only validate if we have multiple checkpoints and not forcing retrain
+        if not force_retrain:
+            valid_checkpoints = [cp for cp in found_checkpoints if cp is not None]
+            if len(valid_checkpoints) > 1:
+                print(f"\n[STEP 2/3] Validating architecture consistency...")
+                print("-" * 60)
+                fingerprints = [
+                    self._get_architecture_fingerprint(cp) for cp in valid_checkpoints
+                ]
+
+                # Check if all fingerprints match
+                reference_fp = fingerprints[0]
+                inconsistent = False
+                for i, (cp, fp) in enumerate(
+                    zip(valid_checkpoints[1:], fingerprints[1:]), 1
+                ):
+                    if fp != reference_fp:
+                        inconsistent = True
+                        print(f"[ERROR] Architecture mismatch detected!")
+                        print(f"  Checkpoint 0: {valid_checkpoints[0]}")
+                        print(f"    Architecture: {reference_fp}")
+                        print(f"  Checkpoint {i}: {cp}")
+                        print(f"    Architecture: {fp}")
+
+                if inconsistent:
+                    raise ValueError(
+                        f"Architecture inconsistency detected across fold checkpoints!\n"
+                        f"This suggests checkpoints are from different training runs.\n"
+                        f"Solution: Use force_retrain=True to retrain all folds with consistent architecture."
+                    )
+                else:
+                    print(
+                        f"[OK] All {len(valid_checkpoints)} checkpoints have consistent architecture"
+                    )
+                    print(f"  Architecture: {reference_fp}")
+            elif len(valid_checkpoints) == 1:
+                print(
+                    f"\n[STEP 2/3] Skipping consistency check (only 1 checkpoint found)"
+                )
+                fp = self._get_architecture_fingerprint(valid_checkpoints[0])
+                print(f"  Single checkpoint architecture: {fp}")
+            else:
+                print(f"\n[STEP 2/3] Skipping consistency check (no checkpoints found)")
+        else:
+            print(f"\n[STEP 2/3] Skipping consistency check (force_retrain=True)")
+
+        # ==================== STEP 3: Load or retrain each fold ====================
+        print(f"\n[STEP 3/3] Loading/retraining {n_folds} fold models...")
+        print("-" * 60)
+
+        fold_models = []
+        fold_f1s = []
+
+        for fold_idx in range(n_folds):
+            expected_f1 = (
+                expected_fold_f1s[fold_idx]
+                if fold_idx < len(expected_fold_f1s)
+                else None
+            )
+
+            ckpt_path = found_checkpoints[fold_idx]
+
+            # Try to load checkpoint if available and not forcing retrain
+            if ckpt_path and expected_f1 is not None and not force_retrain:
+                result = self._load_fold_model(
+                    ckpt_path,
+                    archParams,
+                    macroArch,
+                    data_loader,
+                    fold_idx,
+                    expected_f1,
+                    best_params,
+                    performance_threshold,
+                )
+
+                if result is not None:
+                    model, f1 = result
+                    fold_models.append(model)
+                    fold_f1s.append(f1)
+                    continue
+
+            # Retrain (checkpoint missing, validation failed, or forced)
+            reason = (
+                "force_retrain=True"
+                if force_retrain
+                else ("Checkpoint not found" if not ckpt_path else "Validation failed")
+            )
+            print(f"Fold {fold_idx}: {reason} - retraining...")
+            model, f1 = self._retrain_fold_model(
+                trial_wrapper, archParams, macroArch, data_loader, fold_idx, best_params
+            )
+            fold_models.append(model)
+            fold_f1s.append(f1)
+
+        print("-" * 60)
+        print(f"[OK] All {n_folds} models loaded/retrained")
+        print(f"Fold F1 scores: {[f'{f1:.4f}' for f1 in fold_f1s]}")
+
+        # Create weighted ensemble
+        ensemble = EnsembleModel(models=fold_models, weights=fold_f1s)
+
+        # Move to device
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        ensemble = ensemble.to(device)
+        ensemble.eval()
+
+        print(f"\n✓ Ensemble created with performance-based weights")
+        print(f"Weights: {[f'{w:.3f}' for w in ensemble.weights]}")
+        print(f"Device: {device}")
+        print("=" * 60)
+
+        return ensemble
 
     def load_best_model(self):
         """
@@ -1375,13 +2101,13 @@ class FinalPipeline2:
 
         # Get best trial from study
         completed_trials = [
-            t for t in self.study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
+            t for t in self.study.trials if t.state == optuna.trial.TrialState.COMPLETE
         ]
 
         if not completed_trials:
             raise ValueError(
-                "No completed trials found in study. Run optimization first.")
+                "No completed trials found in study. Run optimization first."
+            )
 
         best_trial = self.study.best_trial
         best_params = best_trial.params
@@ -1391,10 +2117,8 @@ class FinalPipeline2:
         print("=" * 60)
         print(f"Best trial: {best_trial.number}")
         print(f"Best F1 score: {best_trial.value:.4f}")
-        print(
-            f"Architecture: {best_params.get('MacroArchitecture', 'Unknown')}")
-        print(
-            f"Encoder type: {best_params.get('architectureType', 'Unknown')}")
+        print(f"Architecture: {best_params.get('MacroArchitecture', 'Unknown')}")
+        print(f"Encoder type: {best_params.get('architectureType', 'Unknown')}")
         print("-" * 60)
 
         # Create a trial wrapper to reuse setup functions
@@ -1414,50 +2138,47 @@ class FinalPipeline2:
         trial_wrapper = TrialWrapper(best_params)
 
         # Setup data to get dataset info
-        includeTestInTrain = best_params.get(
-            'MacroArchitecture') == 'Autoencoder'
+        includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
-        data_loader.setup(stage='fit', includeTestInTrain=includeTestInTrain)
+        data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
 
         # Reconstruct architecture parameters
         print("Reconstructing architecture...")
         archParams = {}
         archParams = self.setUpEncoder(trial_wrapper, archParams, datasetInfo)
-        archParams = self.setUpFeedForwardHead(
-            trial_wrapper, archParams, datasetInfo)
+        archParams = self.setUpFeedForwardHead(trial_wrapper, archParams, datasetInfo)
 
-        macroArch = best_params.get('MacroArchitecture', 'Direct')
+        macroArch = best_params.get("MacroArchitecture", "Direct")
         if macroArch == "Autoencoder":
-            archParams = self.setUpDecoder(
-                trial_wrapper, archParams, datasetInfo)
+            archParams = self.setUpDecoder(trial_wrapper, archParams, datasetInfo)
             archParams["ReconstructionLossWeight"] = best_params.get(
-                'ReconstructionLossWeight', 0.5)
+                "ReconstructionLossWeight", 0.5
+            )
 
         # Add training parameters
-        archParams['LearningRate'] = best_params['LearningRate']
-        archParams['RegularizationWeight'] = best_params['RegularizationWeight']
-        archParams['OutputDim'] = 3
-        archParams['ClassWeightsPath'] = self.data_params.get(
-            'class_weights_path', '../dataset/PirateProcessed/class_weights.yaml')
+        archParams["LearningRate"] = best_params["LearningRate"]
+        archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
+        archParams["OutputDim"] = 3
+        archParams["ClassWeightsPath"] = self.data_params.get(
+            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
+        )
 
         # Add scheduler parameters if they exist
-        scheduler_type = best_params.get('SchedulerType', 'ReduceLROnPlateau')
-        archParams['SchedulerType'] = scheduler_type
+        scheduler_type = best_params.get("SchedulerType", "ReduceLROnPlateau")
+        archParams["SchedulerType"] = scheduler_type
 
         if scheduler_type == "ReduceLROnPlateau":
-            archParams["Patience"] = best_params.get('SchedulerPatience', 5)
-            archParams["SchedulerFactor"] = best_params.get(
-                'SchedulerFactor', 0.5)
-            archParams["SchedulerMinLR"] = best_params.get(
-                'SchedulerMinLR', 1e-6)
+            archParams["Patience"] = best_params.get("SchedulerPatience", 5)
+            archParams["SchedulerFactor"] = best_params.get("SchedulerFactor", 0.5)
+            archParams["SchedulerMinLR"] = best_params.get("SchedulerMinLR", 1e-6)
         elif scheduler_type == "CosineAnnealing":
             archParams["T_max"] = 100
-            archParams["eta_min"] = best_params.get('eta_min', 1e-6)
+            archParams["eta_min"] = best_params.get("eta_min", 1e-6)
         elif scheduler_type == "CosineAnnealingWarmRestarts":
-            archParams["T_0"] = best_params.get('T_0', 10)
-            archParams["T_mult"] = best_params.get('T_mult', 2)
-            archParams["eta_min"] = best_params.get('eta_min', 1e-6)
+            archParams["T_0"] = best_params.get("T_0", 10)
+            archParams["T_mult"] = best_params.get("T_mult", 2)
+            archParams["eta_min"] = best_params.get("eta_min", 1e-6)
 
         print("✓ Architecture reconstructed")
 
@@ -1465,43 +2186,44 @@ class FinalPipeline2:
         print("Searching for checkpoint...")
         checkpoint_path = None
 
-        # Strategy 1: Look for trial number in checkpoint filename
-        checkpoint_pattern = f'lightning_logs/version_*/checkpoints/trial-{best_trial.number}-*.ckpt'
+        # Strategy 1: Look for trial number in checkpoint filename (in new logs location)
+        checkpoint_pattern = (
+            f"FinalPipelineLogs/Study_*/*/checkpoints/trial-{best_trial.number}-*.ckpt"
+        )
         checkpoints = glob.glob(checkpoint_pattern)
 
-        # Strategy 2: Try version directory matching trial number
+        # Strategy 2: Search all checkpoints with trial number (any study)
         if not checkpoints:
-            version_dir = f'lightning_logs/version_{best_trial.number}/checkpoints/*.ckpt'
-            checkpoints = glob.glob(version_dir)
+            checkpoint_pattern = (
+                f"FinalPipelineLogs/**/trial-{best_trial.number}-*.ckpt"
+            )
+            checkpoints = glob.glob(checkpoint_pattern, recursive=True)
 
-        # Strategy 3: Search nearby version numbers (trials may be sequential)
+        # Strategy 3: Fallback to old lightning_logs location
         if not checkpoints:
-            for offset in range(-5, 6):
-                version_num = best_trial.number + offset
-                if version_num >= 0:
-                    version_dir = f'lightning_logs/version_{version_num}/checkpoints/*.ckpt'
-                    potential = glob.glob(version_dir)
-                    if potential:
-                        checkpoints = potential
-                        break
+            checkpoint_pattern = (
+                f"lightning_logs/version_*/checkpoints/trial-{best_trial.number}-*.ckpt"
+            )
+            checkpoints = glob.glob(checkpoint_pattern)
 
         if not checkpoints:
             # FALLBACK: Retrain the model if no checkpoint found
             print(
-                "⚠️ No checkpoint found. Retraining best model with optimal hyperparameters...")
+                "⚠️ No checkpoint found. Retraining best model with optimal hyperparameters..."
+            )
             print("-" * 60)
 
             base_model = self._retrain_best_model(
-                trial_wrapper, archParams, macroArch, data_loader, best_params)
+                trial_wrapper, archParams, macroArch, data_loader, best_params
+            )
 
         else:
             # Select best checkpoint (prefer ones with val_F1 in name)
-            if any('val_F1=' in ckpt for ckpt in checkpoints):
+            if any("val_F1=" in ckpt for ckpt in checkpoints):
                 checkpoint_path = sorted(
-                    [c for c in checkpoints if 'val_F1=' in c],
-                    key=lambda x: float(x.split('val_F1=')[
-                                        1].split('.ckpt')[0]),
-                    reverse=True
+                    [c for c in checkpoints if "val_F1=" in c],
+                    key=lambda x: float(x.split("val_F1=")[1].split(".ckpt")[0]),
+                    reverse=True,
                 )[0]
             else:
                 checkpoint_path = sorted(checkpoints)[-1]
@@ -1509,7 +2231,7 @@ class FinalPipeline2:
             print(f"✓ Found checkpoint: {checkpoint_path}")
 
             # Check if windowing was used
-            use_windowing = best_params.get('use_windowing', False)
+            use_windowing = best_params.get("use_windowing", False)
 
             # Try to load model from checkpoint
             print("Loading model from checkpoint...")
@@ -1518,41 +2240,49 @@ class FinalPipeline2:
                 checkpoint = torch.load(checkpoint_path, weights_only=False)
 
                 # Check if checkpoint has hyper_parameters (saved by Lightning)
-                if 'hyper_parameters' in checkpoint:
+                if "hyper_parameters" in checkpoint:
                     print("✓ Found saved hyperparameters in checkpoint")
-                    saved_params = checkpoint['hyper_parameters'].get(
-                        'params', archParams)
+                    saved_params = checkpoint["hyper_parameters"].get(
+                        "params", archParams
+                    )
 
                     # Use saved params if available, otherwise use reconstructed ones
                     if saved_params != archParams:
                         print(
-                            "⚠️ Using parameters from checkpoint (differ from reconstructed)")
+                            "⚠️ Using parameters from checkpoint (differ from reconstructed)"
+                        )
                         archParams = saved_params
 
                 if use_windowing:
                     # If windowing was used, we need to load into WindowedModelWrapper
                     print(
-                        "Checkpoint was saved with WindowedModelWrapper, loading accordingly...")
+                        "Checkpoint was saved with WindowedModelWrapper, loading accordingly..."
+                    )
 
                     # First create base model with checkpoint params
+                    # CRITICAL: Deep copy archParams to prevent mutation
+                    archParams_copy = copy.deepcopy(archParams)
                     if macroArch == "Direct":
-                        base_model = Direct(params=archParams)
+                        base_model = Direct(params=archParams_copy)
                     else:
-                        base_model = LightningAutoencoder(params=archParams)
+                        base_model = LightningAutoencoder(params=archParams_copy)
 
                     # Apply He initialization
-                    ff_activation = archParams["FeedForwardParams"]["activation_function"]
+                    ff_activation = archParams["FeedForwardParams"][
+                        "activation_function"
+                    ]
                     self.apply_he_initialization(
-                        base_model, activation_type=ff_activation)
+                        base_model, activation_type=ff_activation
+                    )
 
                     # Create WindowedModelWrapper
-                    window_size = best_params.get('window_size', 160)
-                    stride_ratio = best_params.get('stride_ratio', 1.0)
+                    window_size = best_params.get("window_size", 160)
+                    stride_ratio = best_params.get("stride_ratio", 1.0)
                     stride = int(window_size * stride_ratio)
                     aggregation_method = best_params.get(
-                        'aggregation_method', 'avg_probs')
-                    window_loss_weight = best_params.get(
-                        'window_loss_weight', 0.0)
+                        "aggregation_method", "avg_probs"
+                    )
+                    window_loss_weight = best_params.get("window_loss_weight", 0.0)
 
                     wrapped_model = WindowedModelWrapper(
                         base_model=base_model,
@@ -1564,17 +2294,20 @@ class FinalPipeline2:
 
                     # Load checkpoint into wrapped model
                     missing_keys, unexpected_keys = wrapped_model.load_state_dict(
-                        checkpoint['state_dict'], strict=False)
+                        checkpoint["state_dict"], strict=False
+                    )
 
                     if missing_keys:
                         print(
-                            f"⚠️ Warning: Missing keys in checkpoint: {len(missing_keys)} keys")
+                            f"⚠️ Warning: Missing keys in checkpoint: {len(missing_keys)} keys"
+                        )
                         if len(missing_keys) <= 10:
                             for key in missing_keys:
                                 print(f"  - {key}")
                     if unexpected_keys:
                         print(
-                            f"⚠️ Warning: Unexpected keys in checkpoint: {len(unexpected_keys)} keys")
+                            f"⚠️ Warning: Unexpected keys in checkpoint: {len(unexpected_keys)} keys"
+                        )
                         if len(unexpected_keys) <= 10:
                             for key in unexpected_keys:
                                 print(f"  - {key}")
@@ -1585,15 +2318,20 @@ class FinalPipeline2:
                     # No windowing, load directly into base model
                     if macroArch == "Direct":
                         base_model = Direct.load_from_checkpoint(
-                            checkpoint_path, params=archParams)
+                            checkpoint_path, params=archParams
+                        )
                     else:
                         base_model = LightningAutoencoder.load_from_checkpoint(
-                            checkpoint_path, params=archParams)
+                            checkpoint_path, params=archParams
+                        )
 
                     # Apply He initialization
-                    ff_activation = archParams["FeedForwardParams"]["activation_function"]
+                    ff_activation = archParams["FeedForwardParams"][
+                        "activation_function"
+                    ]
                     self.apply_he_initialization(
-                        base_model, activation_type=ff_activation)
+                        base_model, activation_type=ff_activation
+                    )
 
                     model = base_model
 
@@ -1606,18 +2344,19 @@ class FinalPipeline2:
                 print("-" * 60)
 
                 base_model = self._retrain_best_model(
-                    trial_wrapper, archParams, macroArch, data_loader, best_params)
+                    trial_wrapper, archParams, macroArch, data_loader, best_params
+                )
 
                 # Wrap with WindowedModelWrapper if windowing was used
                 if use_windowing:
                     print("Wrapping retrained model with WindowedModelWrapper...")
-                    window_size = best_params.get('window_size', 160)
-                    stride_ratio = best_params.get('stride_ratio', 1.0)
+                    window_size = best_params.get("window_size", 160)
+                    stride_ratio = best_params.get("stride_ratio", 1.0)
                     stride = int(window_size * stride_ratio)
                     aggregation_method = best_params.get(
-                        'aggregation_method', 'avg_probs')
-                    window_loss_weight = best_params.get(
-                        'window_loss_weight', 0.0)
+                        "aggregation_method", "avg_probs"
+                    )
+                    window_loss_weight = best_params.get("window_loss_weight", 0.0)
 
                     model = WindowedModelWrapper(
                         base_model=base_model,
@@ -1631,7 +2370,7 @@ class FinalPipeline2:
 
         # Set to eval mode and move to device
         model.eval()
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = model.to(device)
 
         print(f"✓ Model loaded and moved to {device}")
@@ -1666,17 +2405,17 @@ class FinalPipeline2:
         Returns:
             pd.DataFrame: The submission dataframe
         """
-        # Load best model if not already loaded
+        # Load K-fold ensemble if not already loaded
         if self.best_model is None:
-            print("Best model not loaded, loading now...")
-            self.load_best_model()
+            print("Loading K-fold ensemble...")
+            self.best_model = self.load_ensemble_model()
+            self.dataloader = DataModule(params=self.data_params)
 
         if self.dataloader is None:
-            raise ValueError(
-                "No dataloader found. This should not happen after load_best_model().")
+            raise ValueError("No dataloader found.")
 
         # Setup test dataloader
-        self.dataloader.setup(stage='test', includeTestInTrain=False)
+        self.dataloader.setup(stage="test", includeTestInTrain=False)
         test_loader = self.dataloader.test_dataloader()
 
         # Create submission generator
@@ -1684,13 +2423,12 @@ class FinalPipeline2:
             model=self.best_model,
             dataloader=test_loader,
             label_mapping={0: "no_pain", 1: "low_pain", 2: "high_pain"},
-            aggregation_method="avg_probs"
+            aggregation_method="avg_probs",
         )
 
         # Generate timestamp and output path
         time_now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(self.submission_folder,
-                            f"submission_{time_now}.csv")
+        path = os.path.join(self.submission_folder, f"submission_{time_now}.csv")
 
         # Generate submission
         submission_df = submitter.generate_submission(output_path=path)
