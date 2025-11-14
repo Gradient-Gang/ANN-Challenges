@@ -32,12 +32,9 @@ dependencies = [
     "psycopg2-binary (>=2.9.11,<3.0.0)",
     "sqlalchemy (>=2.0.44,<3.0.0)",
     "ipywidgets (>=8.1.8,<9.0.0)",
-<<<<<<< Updated upstream
     "optuna-dashboard (>=0.20.0,<0.21.0)",
     "nbformat (>=4.2.0)",
-=======
     "matplotlib-venn (>=1.1.2,<2.0.0)",
->>>>>>> Stashed changes
 ]
 
 [tool.poetry]
