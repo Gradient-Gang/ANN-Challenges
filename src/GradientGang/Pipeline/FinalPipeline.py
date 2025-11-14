@@ -279,7 +279,7 @@ class FinalPipeline:
 
         if architectureType == "Recurrent":
             rnnType = trial.suggest_categorical("rnnType", ["LSTM", "GRU"])
-            hiddenDim = trial.suggest_int("hiddenDim", 16, 256)
+            hiddenDim = trial.suggest_int("hiddenDim", 100, 300)
             numLayers = trial.suggest_int("numLayers", 1, 3)
             bidirectional = trial.suggest_categorical("bidirectional", [False, True])
             dropout = trial.suggest_float("recurrentDropout", 0.0, 0.5)
