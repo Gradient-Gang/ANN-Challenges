@@ -261,9 +261,9 @@ class FinalPipeline:
         """
         # First setup global feature encoder
         globalInputDim = datasetInfo["globalFeaturesShape"][0]
-        globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 80)
-        globalNumLayers = trial.suggest_int("globalNumLayers", 1, 3)
-        globalDropout = trial.suggest_float("globalDropout", 0.0, 0.5)
+        globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 40)
+        globalNumLayers = trial.suggest_int("globalNumLayers", 1, 4)
+        globalDropout = trial.suggest_float("globalDropout", 0.0, 0.4)
         globalActivation = "LeakyReLU"  # FIXED VALUE
         # trial.suggest_categorical(
         #     "globalActivation", ["ReLU", "LeakyReLU", "GELU"]
@@ -276,7 +276,7 @@ class FinalPipeline:
             nextDim = (
                 globalEmbeddingDim
                 if i == globalNumLayers - 1
-                else trial.suggest_int(f"globalHiddenDim_{i}", 32, 128)
+                else trial.suggest_int(f"globalHiddenDim_{i}", 10, 128)
             )
             globalLayerList.append(
                 {
@@ -308,7 +308,7 @@ class FinalPipeline:
 
         # Setup time series encoder - now supports Recurrent, Conv1d, and MultiScaleCNN
         architectureType = trial.suggest_categorical(
-            "architectureType", ["Recurrent", "Conv1d", "MultiScaleCNN"]
+            "architectureType", ["Recurrent", "MultiScaleCNN"]
         )
 
         timeSeriesEncoderParams = {}
@@ -316,7 +316,7 @@ class FinalPipeline:
         if architectureType == "Recurrent":
             rnnType = trial.suggest_categorical("rnnType", ["LSTM", "GRU"])
             hiddenDim = trial.suggest_int("hiddenDim", 100, 300)
-            numLayers = trial.suggest_int("RecurrentNumLayers", 1, 3)
+            numLayers = trial.suggest_int("RecurrentNumLayers", 1, 4)
             bidirectional = True # FIXED VALUE trial.suggest_categorical("bidirectional", [False, True])
             dropout = trial.suggest_float("recurrentDropout", 0.0, 0.5)
             activationFunction = "GELU" # FIXED VALUE
@@ -439,7 +439,7 @@ class FinalPipeline:
 
         elif architectureType == "MultiScaleCNN":
             # Multi-scale CNN architecture (Inception-style)
-            numMultiScaleLayers = trial.suggest_int("numMultiScaleLayers", 1, 2)
+            numMultiScaleLayers = trial.suggest_int("numMultiScaleLayers", 1, 3)
             useDilation = True # FIXED PARAM trial.suggest_categorical("useDilation", [True, False])
             kernelSizesProfiles = [(3, 5, 7), (3, 7, 11), (5, 9, 13)]
             kernelSizesIndex = trial.suggest_int(
@@ -586,24 +586,39 @@ class FinalPipeline:
         combinedInputSize = encoderOutputSize + globalEmbeddingDim
 
         # Suggest feedforward head architecture
-        numHiddenLayers = trial.suggest_int("numFFLayers", 1, 3)
-        ffHiddenDim = trial.suggest_int("ffHiddenDim", 32, 256)
-        ffDropout = trial.suggest_float("ffDropout", 0.0, 0.5)
+        numHiddenLayers = trial.suggest_int("numFFLayers", 1, 4)
+        # Coefficient to determine first layer size relative to input
+        # e.g., 0.5 means first layer has half the neurons of input
+        ffSizeCoefficient = trial.suggest_float("ffSizeCoefficient", 0.3, 0.8)
+        ffStartDim = max(32, int(combinedInputSize * ffSizeCoefficient))  # First layer size
+        ffDropout = trial.suggest_float("ffDropout", 0.0, 0.4)
         ffActivation = "LeakyReLU"  # FIXED VALUE
         # trial.suggest_categorical(
         #     "ffActivation", ["ReLU", "LeakyReLU", "GELU"]
         # )
 
-        # Build layer list - make sure last element is always Linear
+        # Build layer list with linearly decreasing dimensions
+        # Scale from ffStartDim down to 32 (minimum before output layer) across numHiddenLayers
         layerList_clean = []
-        currentDim = combinedInputSize
+        
+        minFinalDim = 32  # Minimum dimension before output layer
+        
+        if numHiddenLayers == 1:
+            # Single layer: use ffStartDim directly
+            dimensions = [combinedInputSize, ffStartDim]
+        else:
+            # Multiple layers: linearly interpolate from ffStartDim down to minFinalDim
+            # Example: 3 layers, ffStartDim=200 -> [combinedInput, 200, 116, 32]
+            step = (ffStartDim - minFinalDim) / (numHiddenLayers - 1)
+            dimensions = [combinedInputSize] + [max(minFinalDim, int(ffStartDim - step * i)) for i in range(numHiddenLayers)]
+        
         for i in range(numHiddenLayers):
             layerList_clean.append(
                 {
                     "name": "Linear",
                     "params": {
-                        "in_features": currentDim,
-                        "out_features": ffHiddenDim,
+                        "in_features": dimensions[i],
+                        "out_features": dimensions[i + 1],
                         "bias": True,
                     },
                 }
@@ -619,7 +634,6 @@ class FinalPipeline:
                         },
                     }
                 )
-            currentDim = ffHiddenDim
 
         # Note: Final output layer will be added by Direct/Autoencoder class
         # The last layer MUST have "out_features" for Direct to append the output layer
@@ -1135,20 +1149,22 @@ class FinalPipeline:
 
             # Stride: step size between windows (lower = more overlap)
             # Use categorical to prefer common overlap patterns
-            stride_ratio = trial.suggest_categorical(
-                "stride_ratio", [0.25, 0.5, 0.75, 1.0]
-            )
+            stride_ratio = 1.0  # FIXED VALUE
+            # trial.suggest_categorical(
+            #     "stride_ratio", [0.25, 0.5, 0.75, 1.0]
+            # )
             stride = int(window_size * stride_ratio)
 
             # Aggregation method: how to combine window predictions
-            aggregation_method = trial.suggest_categorical(
-                "aggregation_method",
-                ["avg_probs", "majority_vote"],
-            ) # REDUCED OPTIONS
+            aggregation_method = "majority_vote"  # FIXED VALUE
+            # trial.suggest_categorical(
+            #     "aggregation_method",
+            #     ["avg_probs", "majority_vote"],
+            # ) # REDUCED OPTIONS
 
             # Window loss weight: auxiliary supervision on individual windows
             # 0 = only sample-level loss, >0 = also supervise individual windows
-            window_loss_weight = trial.suggest_float("window_loss_weight", 0.0, 0.5)
+            window_loss_weight = 0.2 # FIXED VALUE
         else:
             window_size = 160
             stride = 160
@@ -1163,10 +1179,10 @@ class FinalPipeline:
             jitter_strength = trial.suggest_float("jitter_strength", 0.01, 0.1, log=True)
             
             # Scaling: Random amplitude scaling
-            scaling_range = trial.suggest_float("scaling_range", 0.05, 0.15)
+            scaling_range = trial.suggest_float("scaling_range", 0.08, 0.15)
             
             # Time Warping: Smooth time axis distortion
-            time_warp_strength = trial.suggest_float("time_warp_strength", 0.1, 0.5)
+            time_warp_strength = trial.suggest_float("time_warp_strength", 0.01, 0.25)
             
             # Create config in the correct format for AugmentationPipeline.from_config()
             augmentation_config = {
@@ -1254,15 +1270,18 @@ class FinalPipeline:
         archParams["SchedulerType"] = scheduler_type
 
         if scheduler_type == "ReduceLROnPlateau":
-            archParams["Patience"] = trial.suggest_int(
-                "SchedulerPatience", 3, 10
-            )  # Patience for LR reduction
-            archParams["SchedulerFactor"] = trial.suggest_float(
-                "SchedulerFactor", 0.1, 0.5
-            )
-            archParams["SchedulerMinLR"] = trial.suggest_float(
-                "SchedulerMinLR", 1e-6, 1e-4, log=True
-            )
+            archParams["Patience"] = 10 # FIXED VALUE
+                # trial.suggest_int(
+                #     "SchedulerPatience", 3, 10
+                # )  # Patience for LR reduction
+            archParams["SchedulerFactor"] = 0.1  # FIXED VALUE
+            # trial.suggest_float(
+            #     "SchedulerFactor", 0.1, 0.25
+            # )
+            archParams["SchedulerMinLR"] = 0  # FIXED VALUE
+            # trial.suggest_float(
+            #     "SchedulerMinLR", 1e-6, 1e-4, log=True
+            # )
         elif scheduler_type == "CosineAnnealing":
             # Cosine annealing: smooth LR decay following cosine curve
             # Full cycle matches training duration
@@ -1279,7 +1298,7 @@ class FinalPipeline:
             archParams["eta_min"] = trial.suggest_float("eta_min", 1e-7, 1e-5, log=True)
 
         # Early stopping: stops training if no improvement after patience epochs
-        early_stopping_patience = trial.suggest_int("EarlyStoppingPatience", 10, 20)
+        early_stopping_patience =  15  # FIXED VALUE
 
         # ==================== STEP 7: K-Fold Cross-Validation Training ====================
         # Track validation scores across all folds
@@ -1519,7 +1538,7 @@ class FinalPipeline:
             stride_ratio = best_params.get("stride_ratio", 1.0)
             stride = int(window_size * stride_ratio)
             aggregation_method = best_params.get("aggregation_method", "avg_probs")
-            window_loss_weight = best_params.get("window_loss_weight", 0.0)
+            window_loss_weight = 0.2
 
             training_model = WindowedModelWrapper(
                 base_model=base_model,
@@ -1850,7 +1869,7 @@ class FinalPipeline:
         """
         print(f"\n🔄 Retraining fold {fold_idx}...")
         print(f"   MacroArchitecture: {macroArch}")
-        print(f"   Use windowing: {best_params.get('use_windowing', False)}")
+        print(f"   Use windowing: {best_params.get('use_windowing', True)}")
 
         try:
             # Create base model
@@ -1867,7 +1886,7 @@ class FinalPipeline:
             self.apply_he_initialization(base_model, activation_type=ff_activation)
 
             # Wrap if windowing
-            use_windowing = best_params.get("use_windowing", False)
+            use_windowing = best_params.get("use_windowing", True)
             if use_windowing:
                 window_size = best_params.get("window_size", 160)
                 stride_ratio = best_params.get("stride_ratio", 1.0)
@@ -2026,20 +2045,20 @@ class FinalPipeline:
                 "ReconstructionLossWeight", 0.5
             )
 
-        archParams["LearningRate"] = 0.0005
+        archParams["LearningRate"] = 0.0005  # FIXED VALUE (must match training)
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
         )
 
-        # Add scheduler parameters
-        scheduler_type = best_params.get("SchedulerType", "ReduceLROnPlateau")
+        # Add scheduler parameters - using FIXED VALUES from training
+        scheduler_type = "ReduceLROnPlateau"  # FIXED VALUE (must match training)
         archParams["SchedulerType"] = scheduler_type
         if scheduler_type == "ReduceLROnPlateau":
-            archParams["Patience"] = best_params.get("SchedulerPatience", 5)
-            archParams["SchedulerFactor"] = best_params.get("SchedulerFactor", 0.5)
-            archParams["SchedulerMinLR"] = best_params.get("SchedulerMinLR", 1e-6)
+            archParams["Patience"] = 10  # FIXED VALUE (must match training)
+            archParams["SchedulerFactor"] = 0.1  # FIXED VALUE (must match training)
+            archParams["SchedulerMinLR"] = 0  # FIXED VALUE (must match training)
         elif scheduler_type == "CosineAnnealing":
             archParams["T_max"] = 100
             archParams["eta_min"] = best_params.get("eta_min", 1e-6)
@@ -2177,6 +2196,7 @@ class FinalPipeline:
         print("-" * 60)
         print(f"[OK] All {n_folds} models loaded/retrained")
         print(f"Fold F1 scores: {[f'{f1:.4f}' for f1 in fold_f1s]}")
+        print(f"Average F1 score: {sum(fold_f1s) / len(fold_f1s):.4f}")
 
         # Create weighted ensemble
         ensemble = EnsembleModel(models=fold_models, weights=fold_f1s)
@@ -2188,6 +2208,7 @@ class FinalPipeline:
 
         print(f"\n✓ Ensemble created with performance-based weights")
         print(f"Weights: {[f'{w:.3f}' for w in ensemble.weights]}")
+        print(f"Weighted F1 Estimate: {sum([f1 * w for f1, w in zip(fold_f1s, ensemble.weights)]):.4f}")
         print(f"Device: {device}")
         print("=" * 60)
 
@@ -2303,22 +2324,22 @@ class FinalPipeline:
                 "ReconstructionLossWeight", 0.5
             )
 
-        # Add training parameters
-        archParams["LearningRate"] = best_params["LearningRate"]
+        # Add training parameters - using FIXED VALUES from training
+        archParams["LearningRate"] = 0.0005  # FIXED VALUE (must match training)
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
         )
 
-        # Add scheduler parameters if they exist
-        scheduler_type = best_params.get("SchedulerType", "ReduceLROnPlateau")
+        # Add scheduler parameters - using FIXED VALUES from training
+        scheduler_type = "ReduceLROnPlateau"  # FIXED VALUE (must match training)
         archParams["SchedulerType"] = scheduler_type
 
         if scheduler_type == "ReduceLROnPlateau":
-            archParams["Patience"] = best_params.get("SchedulerPatience", 5)
-            archParams["SchedulerFactor"] = best_params.get("SchedulerFactor", 0.5)
-            archParams["SchedulerMinLR"] = best_params.get("SchedulerMinLR", 1e-6)
+            archParams["Patience"] = 10  # FIXED VALUE (must match training)
+            archParams["SchedulerFactor"] = 0.1  # FIXED VALUE (must match training)
+            archParams["SchedulerMinLR"] = 0  # FIXED VALUE (must match training)
         elif scheduler_type == "CosineAnnealing":
             archParams["T_max"] = 100
             archParams["eta_min"] = best_params.get("eta_min", 1e-6)

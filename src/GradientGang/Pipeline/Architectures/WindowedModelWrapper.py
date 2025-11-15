@@ -171,7 +171,7 @@ class WindowedModelWrapper(L.LightningModule):
         sample_logits = self.aggregate_predictions(window_logits)
 
         # During training with auxiliary loss, return both
-        if self.training and self.window_loss_weight > 0:
+        if self.training:
             return sample_logits, window_logits
         else:
             return sample_logits
