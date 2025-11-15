@@ -27,7 +27,6 @@ class LightningAutoencoder(L.LightningModule):
             "OutputDim": int,
             "LearningRate": float,
             "RegularizationWeight": float,
-            "L1RegularizationWeight": float,
             "ReconstructionLossWeight": float,
             # Note: Patience is optional - only needed for ReduceLROnPlateau scheduler
         },
@@ -129,11 +128,6 @@ class LightningAutoencoder(L.LightningModule):
             self.class_weights if isinstance(self.class_weights, torch.Tensor) else None
         )
         self.predictionLossFunction = torch.nn.CrossEntropyLoss(weight=weight_tensor)
-        
-        # Cache weight parameters for efficient L1 computation
-        # This avoids filtering on every forward pass
-        self._cached_weight_params = None
-        self._cache_valid = False
 
     def forward(self, x) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
@@ -347,45 +341,6 @@ class LightningAutoencoder(L.LightningModule):
             f1 = self.f1Function(availablePredictions, availableTargets)
         return f1
 
-    def _cache_weight_parameters(self):
-        """Cache weight parameters (excluding biases and batch norm) for efficient L1 computation."""
-        if not self._cache_valid:
-            self._cached_weight_params = [
-                param
-                for name, param in self.named_parameters()
-                if 'bias' not in name and 'bn' not in name and 'batch_norm' not in name
-            ]
-            self._cache_valid = True
-    
-    def compute_l1_loss(self) -> torch.Tensor:
-        """
-        Compute L1 regularization loss (sum of absolute values of weights).
-        
-        L1 regularization promotes sparsity by driving some weights to exactly zero,
-        which helps with feature selection and can reduce overfitting.
-        
-        Skips:
-        - Bias terms (only regularize weights)
-        - Batch normalization parameters (gamma and beta)
-        
-        Returns:
-            torch.Tensor: Scalar L1 loss on the correct device
-        
-        Note:
-            Uses cached parameter list and torch.norm() for efficiency.
-            Cache is invalidated/rebuilt only when model structure changes.
-        """
-        # Use cached parameters to avoid repeated filtering
-        self._cache_weight_parameters()
-        
-        if not self._cached_weight_params:
-            return torch.tensor(0.0, device=self.device)
-        
-        # Efficient L1 computation using torch.norm
-        l1_loss = sum(torch.norm(param, p=1) for param in self._cached_weight_params)
-        
-        return l1_loss
-
     def training_step(self, batch, batch_idx):
         """
         Training step for Lightning Autoencoder architecture.
@@ -420,15 +375,10 @@ class LightningAutoencoder(L.LightningModule):
         # Compute prediction loss
         predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
 
-        # Compute L1 regularization loss
-        l1_loss = self.compute_l1_loss()
-        l1_regularization_weight = self.params.get("L1RegularizationWeight", 0.0)
-
-        # Compute complete loss (reconstruction + prediction + L1 penalty)
+        # Compute complete loss
         loss = (
             self.reconstruction_loss_weight * reconstructionLoss
             + (1 - self.reconstruction_loss_weight) * predictionLoss
-            + l1_regularization_weight * l1_loss
         )
 
         # Compute F1 score
@@ -441,7 +391,6 @@ class LightningAutoencoder(L.LightningModule):
         )
         self.log("train_reconstruction_loss", reconstructionLoss)
         self.log("train_prediction_loss", predictionLoss)
-        self.log("train_l1_loss", l1_loss)
         self.log("train_loss", loss)
         self.log("train_F1", f1, prog_bar=True)
 
@@ -481,15 +430,10 @@ class LightningAutoencoder(L.LightningModule):
         # Compute prediction loss
         predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
 
-        # Compute L1 regularization loss
-        l1_loss = self.compute_l1_loss()
-        l1_regularization_weight = self.params.get("L1RegularizationWeight", 0.0)
-
-        # Compute complete loss (reconstruction + prediction + L1 penalty)
+        # Compute complete loss
         loss = (
             self.reconstruction_loss_weight * reconstructionLoss
             + (1 - self.reconstruction_loss_weight) * predictionLoss
-            + l1_regularization_weight * l1_loss
         )
 
         # f1 F1 score
@@ -502,7 +446,6 @@ class LightningAutoencoder(L.LightningModule):
         )
         self.log("val_reconstruction_loss", reconstructionLoss)
         self.log("val_prediction_loss", predictionLoss)
-        self.log("val_l1_loss", l1_loss)
         self.log("val_loss", loss)
         self.log("val_F1", f1, prog_bar=True)
 

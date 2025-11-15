@@ -101,7 +101,7 @@ class FinalPipeline:
         """
         self.study = optuna.create_study(
             direction="maximize",  # Maximize F1 score
-            sampler=optuna.samplers.GPSampler(seed=42),
+            sampler=optuna.samplers.TPESampler(seed=42),
             study_name=self.project_name + self.study_name,
             storage=self.storage,
             load_if_exists=True,  # Resume from existing study if available
@@ -257,9 +257,10 @@ class FinalPipeline:
         globalEmbeddingDim = trial.suggest_int("globalEmbeddingDim", 16, 80)
         globalNumLayers = trial.suggest_int("globalNumLayers", 1, 3)
         globalDropout = trial.suggest_float("globalDropout", 0.0, 0.5)
-        globalActivation = trial.suggest_categorical(
-            "globalActivation", ["ReLU", "LeakyReLU", "GELU"]
-        )
+        globalActivation = "LeakyReLU"  # FIXED VALUE
+        # trial.suggest_categorical(
+        #     "globalActivation", ["ReLU", "LeakyReLU", "GELU"]
+        # )
 
         # Build global feature encoder layers
         globalLayerList = []
@@ -308,12 +309,13 @@ class FinalPipeline:
         if architectureType == "Recurrent":
             rnnType = trial.suggest_categorical("rnnType", ["LSTM", "GRU"])
             hiddenDim = trial.suggest_int("hiddenDim", 100, 300)
-            numLayers = trial.suggest_int("numLayers", 1, 3)
-            bidirectional = trial.suggest_categorical("bidirectional", [False, True])
+            numLayers = trial.suggest_int("RecurrentNumLayers", 1, 3)
+            bidirectional = True # FIXED VALUE trial.suggest_categorical("bidirectional", [False, True])
             dropout = trial.suggest_float("recurrentDropout", 0.0, 0.5)
-            activationFunction = trial.suggest_categorical(
-                "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
-            )
+            activationFunction = "GELU" # FIXED VALUE
+            # trial.suggest_categorical(
+            #     "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
+            # )
 
             # Get input size from dataset info
             inputSize = datasetInfo["timeSeriesShape"][0]
@@ -340,13 +342,17 @@ class FinalPipeline:
             # Conv1d architecture
             numConvLayers = trial.suggest_int("numConvLayers", 1, 3)
             kernelSize = trial.suggest_categorical("kernelSize", [3, 5, 7])
-            stride = trial.suggest_categorical("strideConv1D", [1, 2])
-            activationFunction = trial.suggest_categorical(
-                "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
-            )
+            stride = 1 #FIXED PARAM trial.suggest_categorical("strideConv1D", [1])  # FIX: Use stride=1 to avoid sequence collapse
+            activationFunction = "GELU" # FIXED VALUE
+            # trial.suggest_categorical(
+            #     "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
+            # )
 
             # Start with input channels
             inputChannels = datasetInfo["timeSeriesShape"][0]
+            
+            # Calculate current sequence length to avoid over-pooling
+            currentSeqLen = datasetInfo["timeSeriesShape"][1]
 
             # Build conv layers
             layerList = []
@@ -366,28 +372,38 @@ class FinalPipeline:
                         },
                     }
                 )
-                # Add pooling after each conv
-                poolType = trial.suggest_categorical(f"poolType_{i}", ["max", "avg"])
-                if poolType == "max":
-                    layerList.append(
-                        {
-                            "name": "MaxPool1d",
-                            "params": {
-                                "kernel_size": 2,
-                                "stride": 2,
-                            },
-                        }
-                    )
-                else:
-                    layerList.append(
-                        {
-                            "name": "AvgPool1d",
-                            "params": {
-                                "kernel_size": 2,
-                                "stride": 2,
-                            },
-                        }
-                    )
+                
+                # Update sequence length after conv (with padding, length stays same if stride=1)
+                currentSeqLen = currentSeqLen // stride
+                
+                # Only add pooling if sequence is long enough (>4 after pooling)
+                # This prevents sequence collapse to 0
+                if currentSeqLen > 8:  # Safe threshold: allows at least 4 after pooling
+                    poolType = trial.suggest_categorical(f"poolType_{i}", ["max", "avg", "none"])
+                    if poolType == "max":
+                        layerList.append(
+                            {
+                                "name": "MaxPool1d",
+                                "params": {
+                                    "kernel_size": 2,
+                                    "stride": 2,
+                                },
+                            }
+                        )
+                        currentSeqLen = currentSeqLen // 2
+                    elif poolType == "avg":
+                        layerList.append(
+                            {
+                                "name": "AvgPool1d",
+                                "params": {
+                                    "kernel_size": 2,
+                                    "stride": 2,
+                                },
+                            }
+                        )
+                        currentSeqLen = currentSeqLen // 2
+                    # else: poolType == "none", no pooling added
+                
                 currentChannels = outChannels
 
             # Add adaptive pooling and flatten
@@ -417,15 +433,16 @@ class FinalPipeline:
         elif architectureType == "MultiScaleCNN":
             # Multi-scale CNN architecture (Inception-style)
             numMultiScaleLayers = trial.suggest_int("numMultiScaleLayers", 1, 2)
-            useDilation = trial.suggest_categorical("useDilation", [True, False])
+            useDilation = True # FIXED PARAM trial.suggest_categorical("useDilation", [True, False])
             kernelSizesProfiles = [(3, 5, 7), (3, 7, 11), (5, 9, 13)]
             kernelSizesIndex = trial.suggest_int(
                 "kernelSizesIndex", 0, len(kernelSizesProfiles) - 1
             )
             kernelSizes = kernelSizesProfiles[kernelSizesIndex]
-            activationFunction = trial.suggest_categorical(
-                "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
-            )
+            activationFunction = "GELU" # FIXED VALUE 
+            # trial.suggest_categorical(
+            #     "encoderActivation", ["ReLU", "LeakyReLU", "GELU"]
+            # )
 
             # Start with input channels
             inputChannels = datasetInfo["timeSeriesShape"][0]
@@ -435,9 +452,10 @@ class FinalPipeline:
             currentChannels = inputChannels
             for i in range(numMultiScaleLayers):
                 branchChannels = trial.suggest_int(f"branchChannels_{i}", 32, 128)
-                poolingType = trial.suggest_categorical(
-                    f"poolingType_{i}", ["max", "avg", "none"]
-                )
+                poolingType = "max" # FIXED VALUE
+                # trial.suggest_categorical(
+                #     f"poolingType_{i}", ["max", "avg", "none"]
+                # )
 
                 layerList.append(
                     {
@@ -564,9 +582,10 @@ class FinalPipeline:
         numHiddenLayers = trial.suggest_int("numFFLayers", 1, 3)
         ffHiddenDim = trial.suggest_int("ffHiddenDim", 32, 256)
         ffDropout = trial.suggest_float("ffDropout", 0.0, 0.5)
-        ffActivation = trial.suggest_categorical(
-            "ffActivation", ["ReLU", "LeakyReLU", "GELU"]
-        )
+        ffActivation = "LeakyReLU"  # FIXED VALUE
+        # trial.suggest_categorical(
+        #     "ffActivation", ["ReLU", "LeakyReLU", "GELU"]
+        # )
 
         # Build layer list - make sure last element is always Linear
         layerList_clean = []
@@ -1101,7 +1120,7 @@ class FinalPipeline:
         # ==================== STEP 2: Configure Data Windowing ====================
         # Windowing splits time series into smaller overlapping segments (MODEL-LEVEL, not data-loader level)
         # This can help the model learn from more samples and capture local patterns
-        use_windowing = trial.suggest_categorical("use_windowing", [True, False])
+        use_windowing = True # FIXED PARAM trial.suggest_categorical("use_windowing", [True, False])
 
         if use_windowing:
             # Window size: how much of the sequence to process at once
@@ -1117,8 +1136,8 @@ class FinalPipeline:
             # Aggregation method: how to combine window predictions
             aggregation_method = trial.suggest_categorical(
                 "aggregation_method",
-                ["avg_probs", "avg_logits", "majority_vote", "max_confidence"],
-            )
+                ["avg_probs", "majority_vote"],
+            ) # REDUCED OPTIONS
 
             # Window loss weight: auxiliary supervision on individual windows
             # 0 = only sample-level loss, >0 = also supervise individual windows
@@ -1204,14 +1223,12 @@ class FinalPipeline:
         # ==================== STEP 5: Configure Training Parameters ====================
         # Common parameters for all architectures
         archParams["OutputDim"] = 3  # Number of classes (pain levels)
-        archParams["LearningRate"] = trial.suggest_float(
-            "LearningRate", 1e-5, 1e-2, log=True
-        )
+        archParams["LearningRate"] = 0.0005 # FIXED VALUE
+        # trial.suggest_float(
+        #     "LearningRate", 1e-5, 1e-2, log=True
+        # )
         archParams["RegularizationWeight"] = trial.suggest_float(
             "RegularizationWeight", 1e-3, 1e1, log=True
-        )
-        archParams["L1RegularizationWeight"] = trial.suggest_float(
-            "L1RegularizationWeight", 1e-6, 1e-1, log=True
         )
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
@@ -1222,10 +1239,11 @@ class FinalPipeline:
 
         # ==================== STEP 6: Configure Learning Rate Scheduler ====================
         # Different schedulers for adaptive learning rate adjustment
-        scheduler_type = trial.suggest_categorical(
-            "SchedulerType",
-            ["ReduceLROnPlateau", "CosineAnnealing", "CosineAnnealingWarmRestarts"],
-        )
+        scheduler_type = "ReduceLROnPlateau"  # FIXED VALUE
+        # trial.suggest_categorical(
+        #     "SchedulerType",
+        #     ["ReduceLROnPlateau", "CosineAnnealing", "CosineAnnealingWarmRestarts"],
+        # )
         archParams["SchedulerType"] = scheduler_type
 
         if scheduler_type == "ReduceLROnPlateau":
@@ -1348,6 +1366,11 @@ class FinalPipeline:
                     else 0.0
                 )
                 fold_scores.append(best_f1)
+                trial.report(np.mean(fold_scores), step=fold_idx)
+
+                # Check if this trial should be pruned (stopped early)
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
 
                 # Validate architecture consistency after training
                 if checkpoint_callback.best_model_path:
@@ -1382,6 +1405,10 @@ class FinalPipeline:
                             )
 
             except Exception as e:
+                if isinstance(e, optuna.TrialPruned):
+                    print(f"Trial pruned during fold {fold_idx}.")
+                    raise optuna.TrialPruned() from e
+
                 print(f"Fold {fold_idx} failed with error: {e}")
                 trial.set_user_attr("Error", str(e))
                 # Prune the trial if any fold fails
@@ -1405,12 +1432,6 @@ class FinalPipeline:
             # If database fails, log warning but continue (metrics are still returned)
             print(f"⚠️ Warning: Could not store user attributes in database: {e}")
 
-        # Report score to Optuna for pruning decisions
-        trial.report(mean_f1, step=0)
-
-        # Check if this trial should be pruned (stopped early)
-        if trial.should_prune():
-            raise optuna.TrialPruned()
 
         # Return mean F1 as the optimization objective
         return mean_f1
@@ -1955,7 +1976,6 @@ class FinalPipeline:
 
         archParams["LearningRate"] = best_params["LearningRate"]
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
-        archParams["L1RegularizationWeight"] = best_params.get("L1RegularizationWeight", 1e-4)
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
@@ -2235,7 +2255,6 @@ class FinalPipeline:
         # Add training parameters
         archParams["LearningRate"] = best_params["LearningRate"]
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
-        archParams["L1RegularizationWeight"] = best_params.get("L1RegularizationWeight", 1e-4)
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
@@ -2308,7 +2327,7 @@ class FinalPipeline:
             print(f"✓ Found checkpoint: {checkpoint_path}")
 
             # Check if windowing was used
-            use_windowing = best_params.get("use_windowing", False)
+            use_windowing = True
 
             # Try to load model from checkpoint
             print("Loading model from checkpoint...")

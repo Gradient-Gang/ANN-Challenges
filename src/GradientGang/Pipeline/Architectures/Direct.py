@@ -24,7 +24,6 @@ class Direct(L.LightningModule):
             "OutputDim": int,
             "LearningRate": float,
             "RegularizationWeight": float,
-            "L1RegularizationWeight": float,
             # Note: Patience is optional - only needed for ReduceLROnPlateau scheduler
         },
     )
@@ -133,11 +132,6 @@ class Direct(L.LightningModule):
             self.class_weights if isinstance(self.class_weights, torch.Tensor) else None
         )
         self.predictionLossFunction = torch.nn.CrossEntropyLoss(weight=weight_tensor)
-        
-        # Cache weight parameters for efficient L1 computation
-        # This avoids filtering on every forward pass
-        self._cached_weight_params = None
-        self._cache_valid = False
 
     def computePredictionLoss(
         self, classTargets: torch.Tensor, classPredictions: torch.Tensor
@@ -173,45 +167,6 @@ class Direct(L.LightningModule):
             availablePredictions = torch.argmax(availablePredictionsLogits, dim=1)
             f1 = self.f1Function(availablePredictions, availableTargets)
         return f1
-
-    def _cache_weight_parameters(self):
-        """Cache weight parameters (excluding biases and batch norm) for efficient L1 computation."""
-        if not self._cache_valid:
-            self._cached_weight_params = [
-                param
-                for name, param in self.named_parameters()
-                if 'bias' not in name and 'bn' not in name and 'batch_norm' not in name
-            ]
-            self._cache_valid = True
-    
-    def compute_l1_loss(self) -> torch.Tensor:
-        """
-        Compute L1 regularization loss (sum of absolute values of weights).
-        
-        L1 regularization promotes sparsity by driving some weights to exactly zero,
-        which helps with feature selection and can reduce overfitting.
-        
-        Skips:
-        - Bias terms (only regularize weights)
-        - Batch normalization parameters (gamma and beta)
-        
-        Returns:
-            torch.Tensor: Scalar L1 loss on the correct device
-        
-        Note:
-            Uses cached parameter list and torch.norm() for efficiency.
-            Cache is invalidated/rebuilt only when model structure changes.
-        """
-        # Use cached parameters to avoid repeated filtering
-        self._cache_weight_parameters()
-        
-        if not self._cached_weight_params:
-            return torch.tensor(0.0, device=self.device)
-        
-        # Efficient L1 computation using torch.norm
-        l1_loss = sum(torch.norm(param, p=1) for param in self._cached_weight_params)
-        
-        return l1_loss
 
     def forward(self, x):
         """
@@ -328,19 +283,14 @@ class Direct(L.LightningModule):
         # Compute prediction loss
         predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
 
-        # Compute L1 regularization loss
-        l1_loss = self.compute_l1_loss()
-        l1_regularization_weight = self.params.get("L1RegularizationWeight", 0.0)
-
-        # Compute complete loss (prediction + L1 penalty)
-        loss = predictionLoss + l1_regularization_weight * l1_loss
+        # Compute complete loss
+        loss = predictionLoss
 
         # Compute F1 score
         f1 = self.computeF1Score(classTargets, classPredictions)
 
         # Logging
         self.log("train_prediction_loss", predictionLoss)
-        self.log("train_l1_loss", l1_loss)
         self.log("train_loss", loss)
         self.log("train_F1", f1, prog_bar=True)
 
@@ -365,19 +315,14 @@ class Direct(L.LightningModule):
         # Compute prediction loss
         predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
 
-        # Compute L1 regularization loss
-        l1_loss = self.compute_l1_loss()
-        l1_regularization_weight = self.params.get("L1RegularizationWeight", 0.0)
-
-        # Compute complete loss (prediction + L1 penalty)
-        loss = predictionLoss + l1_regularization_weight * l1_loss
+        # Compute complete loss
+        loss = predictionLoss
 
         # Compute F1 score
         f1 = self.computeF1Score(classTargets, classPredictions)
 
         # Logging
         self.log("val_prediction_loss", predictionLoss)
-        self.log("val_l1_loss", l1_loss)
         self.log("val_loss", loss)
         self.log("val_F1", f1, prog_bar=True)
 
