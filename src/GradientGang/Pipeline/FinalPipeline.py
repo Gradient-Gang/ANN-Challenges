@@ -1210,6 +1210,9 @@ class FinalPipeline:
         archParams["RegularizationWeight"] = trial.suggest_float(
             "RegularizationWeight", 1e-3, 1e1, log=True
         )
+        archParams["L1RegularizationWeight"] = trial.suggest_float(
+            "L1RegularizationWeight", 1e-6, 1e-1, log=True
+        )
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
         )
@@ -1952,6 +1955,7 @@ class FinalPipeline:
 
         archParams["LearningRate"] = best_params["LearningRate"]
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
+        archParams["L1RegularizationWeight"] = best_params.get("L1RegularizationWeight", 1e-4)
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
@@ -2231,6 +2235,7 @@ class FinalPipeline:
         # Add training parameters
         archParams["LearningRate"] = best_params["LearningRate"]
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
+        archParams["L1RegularizationWeight"] = best_params.get("L1RegularizationWeight", 1e-4)
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
