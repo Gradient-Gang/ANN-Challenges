@@ -15,7 +15,7 @@ import optuna
 import torch
 import copy
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
 from torchmetrics import F1Score
 import warnings
@@ -164,7 +164,7 @@ class FinalPipeline:
                     completed_trials, key=lambda t: t.value, reverse=True
                 )[:5]
                 for i, trial in enumerate(sorted_trials, 1):
-                    arch = trial.params.get("MacroArchitecture", "Unknown")
+                    arch = trial.params.get("MacroArchitecture", "Autoencoder")
                     enc = trial.params.get("architectureType", "Unknown")
                     print(
                         f"  {i}. Trial {trial.number}: F1={trial.value:.4f} | {arch} | {enc}"
@@ -1134,9 +1134,11 @@ class FinalPipeline:
         """
         # ==================== STEP 1: Suggest Macro Architecture ====================
         # Choose between direct classification or autoencoder-based approach
-        macroArchitecture = trial.suggest_categorical(
-            "MacroArchitecture", ["Direct", "Autoencoder"]
-        )
+        macroArchitecture = "Autoencoder" # FIXED PARAM
+        
+        # trial.suggest_categorical(
+        #     "MacroArchitecture", ["Direct", "Autoencoder"]
+        # )
 
         # ==================== STEP 2: Configure Data Windowing ====================
         # Windowing splits time series into smaller overlapping segments (MODEL-LEVEL, not data-loader level)
@@ -1253,8 +1255,10 @@ class FinalPipeline:
         archParams["RegularizationWeight"] = trial.suggest_float(
             "RegularizationWeight", 1e-3, 1e1, log=True
         )
+
+        useClassWeights = trial.suggest_categorical("useClassWeights", [True, False])
         archParams["ClassWeightsPath"] = self.data_params.get(
-            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
+            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml" if useClassWeights else None
         )
 
         # Maximum training epochs (early stopping may terminate earlier)
@@ -1402,15 +1406,21 @@ class FinalPipeline:
                 verbose=False,
             )
 
+            # Optional: Stochastic Weight Averaging (SWA) for improved generalization
+            stochastic_weight_avg_callback = StochasticWeightAveraging(
+                swa_lrs=archParams["LearningRate"]
+                )
+
             # Create PyTorch Lightning trainer with configured callbacks
             trainer = Trainer(
                 max_epochs=max_epochs,
                 enable_progress_bar=True,
                 enable_model_summary=False,
-                callbacks=[early_stopping_callback, checkpoint_callback],
+                callbacks=[early_stopping_callback, checkpoint_callback, stochastic_weight_avg_callback],
                 enable_checkpointing=True,
                 logger=logger,
                 log_every_n_steps=20,
+                gradient_clip_val=1.0,
             )
 
             # Train the model
@@ -2328,8 +2338,9 @@ class FinalPipeline:
         archParams["LearningRate"] = 0.0005  # FIXED VALUE (must match training)
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
         archParams["OutputDim"] = 3
+        useClassWeights = best_params.get("use_class_weights", True)
         archParams["ClassWeightsPath"] = self.data_params.get(
-            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml"
+            "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml" if useClassWeights else None
         )
 
         # Add scheduler parameters - using FIXED VALUES from training

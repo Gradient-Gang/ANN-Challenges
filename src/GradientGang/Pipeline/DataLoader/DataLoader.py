@@ -10,7 +10,7 @@ import pandas as pd
 import os
 import numpy as np
 from torch.utils.data.dataset import ConcatDataset
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from ..Utils.ParameterInterpreter import ParameterInterpreter
 from .Augmentations import AugmentationPipeline
 
@@ -763,11 +763,11 @@ class DataModule(L.LightningDataModule):
             )
 
         # Create K-Fold splitter
-        kfold = KFold(n_splits=self.n_folds, shuffle=True, random_state=42)
+        kfold = StratifiedKFold(n_splits=self.n_folds, shuffle=True, random_state=42)
 
         # Get train/val indices for this fold
         all_indices = np.arange(len(self._full_labeled_dataset))
-        splits = list(kfold.split(all_indices))
+        splits = list(kfold.split(all_indices, self._full_labeled_dataset.labels.numpy()))
         train_indices, val_indices = splits[fold_idx]
 
         # Create train and val subsets with proper is_training flags
