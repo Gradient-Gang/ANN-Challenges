@@ -146,6 +146,19 @@ class LightningAutoencoder(L.LightningModule):
         original_seq_len = timeSeries.shape[2] if len(timeSeries.shape) == 3 else None
 
         encoded_timeSeries = self.encoder(timeSeries)
+        
+        # DEBUGGING: Check encoder output shape
+        if len(encoded_timeSeries.shape) != 2:
+            # Get encoder type for better error message
+            first_layer = self.params["EncoderParams"]["layer_type"][0]
+            encoder_type = first_layer["name"]
+            raise RuntimeError(
+                f"[LightningAutoencoder] Encoder output should be 2D (batch, features), but got shape {encoded_timeSeries.shape}. "
+                f"Encoder type: {encoder_type}. "
+                f"This suggests AdaptiveAvgPool1d or Flatten is not working correctly in the encoder. "
+                f"Input shape was {timeSeries.shape}."
+            )
+        
         encoded_globalFeatures = self.globalff_encoder(globalFeatures)
         combined_encoded = torch.cat(
             (encoded_timeSeries, encoded_globalFeatures), dim=1

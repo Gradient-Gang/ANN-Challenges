@@ -31,7 +31,7 @@ from datetime import datetime
 warnings.filterwarnings("ignore")
 
 
-class FinalPipeline:
+class FinalPipeline3:
 
     def __init__(self, params: dict):
         self.params = params
@@ -1099,18 +1099,16 @@ class FinalPipeline:
         """
         # ==================== STEP 1: Suggest Macro Architecture ====================
         # Choose between direct classification or autoencoder-based approach
-        macroArchitecture = trial.suggest_categorical(
-            "MacroArchitecture", ["Direct", "Autoencoder"]
-        )
+        macroArchitecture = "Direct"
 
         # ==================== STEP 2: Configure Data Windowing ====================
         # Windowing splits time series into smaller overlapping segments (MODEL-LEVEL, not data-loader level)
         # This can help the model learn from more samples and capture local patterns
-        use_windowing = trial.suggest_categorical("use_windowing", [True, False])
+        use_windowing = True
 
         if use_windowing:
             # Window size: how much of the sequence to process at once
-            window_size = trial.suggest_int("window_size", 5, 40)
+            window_size = 10
 
             # Stride: step size between windows (lower = more overlap)
             # Use categorical to prefer common overlap patterns
@@ -1120,10 +1118,7 @@ class FinalPipeline:
             stride = int(window_size * stride_ratio)
 
             # Aggregation method: how to combine window predictions
-            aggregation_method = trial.suggest_categorical(
-                "aggregation_method",
-                ["avg_probs", "avg_logits", "majority_vote", "max_confidence"],
-            )
+            aggregation_method =  "majority_vote"
 
             # Window loss weight: auxiliary supervision on individual windows
             # 0 = only sample-level loss, >0 = also supervise individual windows
@@ -1147,10 +1142,6 @@ class FinalPipeline:
         n_folds = kfold_data_params["n_folds"]
 
         kfold_dataLoader = DataModule(params=kfold_data_params)
-        # First load test data if we need it for autoencoder training
-        if includeTestInTrain:
-            kfold_dataLoader.setup(stage="test", includeTestInTrain=False)
-        # Then load training data and prepare for K-fold splits
         kfold_dataLoader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = kfold_dataLoader.getDatasetInfo()
 
@@ -1436,10 +1427,6 @@ class FinalPipeline:
 
         # Prepare combined training data (train all folds together for best performance)
         includeTestInTrain = macroArch == "Autoencoder"
-        # First load test data if we need it for autoencoder training
-        if includeTestInTrain:
-            data_loader.setup(stage="test", includeTestInTrain=False)
-        # Then load training data
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         train_loader = data_loader.train_dataloader()
         val_loader = data_loader.val_dataloader()
@@ -1891,10 +1878,6 @@ class FinalPipeline:
 
         includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
-        # First load test data if we need it for autoencoder training
-        if includeTestInTrain:
-            data_loader.setup(stage="test", includeTestInTrain=False)
-        # Then load training data and prepare for K-fold splits
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
 
@@ -2157,10 +2140,6 @@ class FinalPipeline:
         # Setup data to get dataset info
         includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
-        # First load test data if we need it for autoencoder training
-        if includeTestInTrain:
-            data_loader.setup(stage="test", includeTestInTrain=False)
-        # Then load training data
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
 
