@@ -101,12 +101,7 @@ class FinalPipeline:
         """
         self.study = optuna.create_study(
             direction="maximize",  # Maximize F1 score
-            sampler=optuna.samplers.TPESampler(seed=42),
-            pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=5,  # Number of trials before pruning starts
-                n_warmup_steps=5,  # Steps to wait before checking for pruning
-                interval_steps=1,  # Check pruning at every step
-            ),
+            sampler=optuna.samplers.GPSampler(seed=42),
             study_name=self.project_name + self.study_name,
             storage=self.storage,
             load_if_exists=True,  # Resume from existing study if available
@@ -1132,6 +1127,31 @@ class FinalPipeline:
             window_size = 160
             stride = 160
 
+        # ==================== STEP 2.5: Configure Data Augmentation ====================
+        # Data augmentation helps improve generalization by creating variations of training data
+        use_augmentation = trial.suggest_categorical("use_augmentation", [True, False])
+        
+        augmentation_config = None
+        if use_augmentation:
+            # Jittering: Add Gaussian noise to time series
+            jitter_strength = trial.suggest_float("jitter_strength", 0.01, 0.1, log=True)
+            
+            # Scaling: Random amplitude scaling
+            scaling_range = trial.suggest_float("scaling_range", 0.05, 0.15)
+            
+            # Time Warping: Smooth time axis distortion
+            time_warp_strength = trial.suggest_float("time_warp_strength", 0.1, 0.5)
+            
+            # Create config in the correct format for AugmentationPipeline.from_config()
+            augmentation_config = {
+                "jitter_enabled": True,
+                "jitter_strength": jitter_strength,
+                "scaling_enabled": True,
+                "scaling_range": scaling_range,
+                "time_warp_enabled": True,
+                "time_warp_strength": time_warp_strength
+            }
+
         # ==================== STEP 3: Setup Data Loading ====================
         # For autoencoders, include test data in training (unsupervised reconstruction)
         # For direct classification, only use labeled training data
@@ -1145,14 +1165,24 @@ class FinalPipeline:
         kfold_data_params["window_size"] = 160  # Full sequence length
         kfold_data_params["stride"] = 160  # No overlap in DataLoader
         n_folds = kfold_data_params["n_folds"]
+        
+        # Add augmentation configuration to data params
+        kfold_data_params["augmentation_config"] = augmentation_config
+        kfold_data_params["augmentation_seed"] = trial.number * 1000  # Reproducible per trial
 
         kfold_dataLoader = DataModule(params=kfold_data_params)
-        # First load test data if we need it for autoencoder training
-        if includeTestInTrain:
-            kfold_dataLoader.setup(stage="test", includeTestInTrain=False)
-        # Then load training data and prepare for K-fold splits
+        # Load training data and prepare for K-fold splits
+        # If includeTestInTrain=True (autoencoder), test data will be loaded WITH augmentation
         kfold_dataLoader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = kfold_dataLoader.getDatasetInfo()
+        
+        # CRITICAL FIX: When using WindowedModelWrapper, the base model receives windowed sequences
+        # So we need to adjust datasetInfo to reflect what the base model actually sees
+        if use_windowing:
+            datasetInfo["timeSeriesShape"] = (datasetInfo["timeSeriesShape"][0], window_size)
+            datasetInfo["use_windowing"] = True
+            datasetInfo["window_size"] = window_size
+            datasetInfo["stride"] = stride
 
         # ==================== STEP 4: Build Architecture Configuration ====================
         # Architecture parameters will be the same across all folds in this trial
@@ -1168,7 +1198,7 @@ class FinalPipeline:
         if macroArchitecture == "Autoencoder":
             archParams = self.setUpDecoder(trial, archParams, datasetInfo)
             archParams["ReconstructionLossWeight"] = trial.suggest_float(
-                "ReconstructionLossWeight", 0.1, 0.9
+                "ReconstructionLossWeight", 1e-2, 0.5, log=True
             )
 
         # ==================== STEP 5: Configure Training Parameters ====================
@@ -1319,7 +1349,7 @@ class FinalPipeline:
                 # Validate architecture consistency after training
                 if checkpoint_callback.best_model_path:
                     # Extract expected architecture from trial parameters
-                    expected_ff_layers = trial.params.get("numFFLayers", None) + 1
+                    expected_ff_layers = trial.params.get("numFFLayers", None)
 
                     # Get actual architecture from checkpoint
                     actual_fingerprint = self._get_architecture_fingerprint(
@@ -1331,7 +1361,7 @@ class FinalPipeline:
 
                     # Validate architecture matches expectations
                     if expected_ff_layers is not None and actual_ff_layers is not None:
-                        if actual_ff_layers != expected_ff_layers:
+                        if actual_ff_layers + 1 != expected_ff_layers:
                             print(
                                 f"⚠️ WARNING: Architecture mismatch detected after training fold {fold_idx}!"
                             )
@@ -1350,6 +1380,7 @@ class FinalPipeline:
 
             except Exception as e:
                 print(f"Fold {fold_idx} failed with error: {e}")
+                trial.set_user_attr("Error", str(e))
                 # Prune the trial if any fold fails
                 raise optuna.TrialPruned() from e
 
@@ -1891,12 +1922,21 @@ class FinalPipeline:
 
         includeTestInTrain = best_params.get("MacroArchitecture") == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
-        # First load test data if we need it for autoencoder training
-        if includeTestInTrain:
-            data_loader.setup(stage="test", includeTestInTrain=False)
-        # Then load training data and prepare for K-fold splits
+        # Load training data and prepare for K-fold splits
+        # If includeTestInTrain=True (autoencoder), test data will be loaded WITH augmentation for training
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
+        
+        # CRITICAL FIX: When using WindowedModelWrapper, the base model receives windowed sequences
+        # So we need to adjust datasetInfo to reflect what the base model actually sees
+        use_windowing = best_params.get("use_windowing", False)
+        if use_windowing:
+            window_size = best_params.get("window_size", 10)
+            stride = best_params.get("stride", 5)
+            datasetInfo["timeSeriesShape"] = (datasetInfo["timeSeriesShape"][0], window_size)
+            datasetInfo["use_windowing"] = True
+            datasetInfo["window_size"] = window_size
+            datasetInfo["stride"] = stride
 
         print("Reconstructing architecture...")
         archParams = {}
@@ -2163,6 +2203,17 @@ class FinalPipeline:
         # Then load training data
         data_loader.setup(stage="fit", includeTestInTrain=includeTestInTrain)
         datasetInfo = data_loader.getDatasetInfo()
+        
+        # CRITICAL FIX: When using WindowedModelWrapper, the base model receives windowed sequences
+        # So we need to adjust datasetInfo to reflect what the base model actually sees
+        use_windowing = best_params.get("use_windowing", False)
+        if use_windowing:
+            window_size = best_params.get("window_size", 10)
+            stride = best_params.get("stride", 5)
+            datasetInfo["timeSeriesShape"] = (datasetInfo["timeSeriesShape"][0], window_size)
+            datasetInfo["use_windowing"] = True
+            datasetInfo["window_size"] = window_size
+            datasetInfo["stride"] = stride
 
         # Reconstruct architecture parameters
         print("Reconstructing architecture...")

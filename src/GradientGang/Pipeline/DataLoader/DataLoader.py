@@ -12,6 +12,29 @@ import numpy as np
 from torch.utils.data.dataset import ConcatDataset
 from sklearn.model_selection import KFold
 from ..Utils.ParameterInterpreter import ParameterInterpreter
+from .Augmentations import AugmentationPipeline
+
+
+class SubsetWithTrainingFlag(Subset):
+    """
+    A Subset wrapper that overrides the is_training flag on the underlying dataset
+    when accessing items. This allows train and val subsets from the same dataset
+    to have different augmentation behavior.
+    """
+    def __init__(self, dataset, indices, is_training: bool):
+        super().__init__(dataset, indices)
+        self._is_training = is_training
+        
+    def __getitem__(self, idx):
+        # Temporarily override is_training flag
+        original_is_training = self.dataset.is_training
+        self.dataset.is_training = self._is_training
+        try:
+            result = super().__getitem__(idx)
+        finally:
+            # Restore original flag
+            self.dataset.is_training = original_is_training
+        return result
 
 
 class TimeSeriesAndGlobalDataset(Dataset):
@@ -29,6 +52,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
         window_size: int = 160,
         stride: int = 160,
         drop_column_list: list[str] = [],
+        augmentation_pipeline: AugmentationPipeline | None = None,
+        is_training: bool = True,
     ) -> "TimeSeriesAndGlobalDataset":
         """
         Create a TimeSeriesAndGlobalDataset from CSV files.
@@ -186,7 +211,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
         # Return the constructed dataset
         return TimeSeriesAndGlobalDataset(
-            timeSeries, globalFeatures, labels, use_windowing, window_size, stride
+            timeSeries, globalFeatures, labels, use_windowing, window_size, stride,
+            augmentation_pipeline, is_training
         )
 
     def __init__(
@@ -197,6 +223,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
         use_windowing: bool = False,
         window_size: int = 160,
         stride: int = 160,
+        augmentation_pipeline: AugmentationPipeline | None = None,
+        is_training: bool = True,
     ):
         """
         Initialize the TimeSeriesAndGlobalDataset.
@@ -232,6 +260,10 @@ class TimeSeriesAndGlobalDataset(Dataset):
         self.use_windowing = use_windowing
         self.window_size = window_size
         self.stride = stride
+        
+        # Augmentation parameters
+        self.augmentation_pipeline = augmentation_pipeline
+        self.is_training = is_training
 
         # Build window index if windowing is enabled
         self.window_map = []
@@ -305,6 +337,10 @@ class TimeSeriesAndGlobalDataset(Dataset):
                     windowed_ts = torch.nn.functional.pad(
                         windowed_ts, (0, pad_size), mode="constant", value=0
                     )
+                
+                # Apply augmentation to windowed time series (training only)
+                if self.is_training and self.augmentation_pipeline is not None:
+                    windowed_ts = self.augmentation_pipeline.apply(windowed_ts, index)
             else:
                 windowed_ts = None
 
@@ -315,8 +351,14 @@ class TimeSeriesAndGlobalDataset(Dataset):
             ), (self.labels[sample_idx] if self.labels is not None else None)
 
         # Original behavior: retrieve the full sample at the specified index
+        time_series = self.time_series_data[index] if self.time_series_data is not None else None
+        
+        # Apply augmentation to full time series (training only)
+        if self.is_training and self.augmentation_pipeline is not None and time_series is not None:
+            time_series = self.augmentation_pipeline.apply(time_series, index)
+        
         return (
-            self.time_series_data[index] if self.time_series_data is not None else None,
+            time_series,
             self.global_data[index],
         ), (self.labels[index] if self.labels is not None else None)
 
@@ -396,6 +438,10 @@ class DataModule(L.LightningDataModule):
         self.use_windowing = params.get("use_windowing", False)
         self.window_size = params.get("window_size", 160)
         self.stride = params.get("stride", 160)
+        
+        # Augmentation parameters
+        self.augmentation_config = params.get("augmentation_config", None)
+        self.augmentation_seed = params.get("augmentation_seed", 42)
 
         # Initialize dataset attributes
         self.train_dataset = None
@@ -426,6 +472,13 @@ class DataModule(L.LightningDataModule):
                 train_global_path = os.path.join(
                     self.data_dir, self.train_global_features_file
                 )
+            
+            # Create augmentation pipeline if configured
+            augmentation_pipeline = None
+            if self.augmentation_config is not None:
+                augmentation_pipeline = AugmentationPipeline.from_config(
+                    self.augmentation_config, seed=self.augmentation_seed
+                )
 
             # Load labeled training dataset WITHOUT windowing first
             # Windowing will be applied AFTER train/val split to prevent data leakage
@@ -441,6 +494,8 @@ class DataModule(L.LightningDataModule):
                 window_size=self.window_size,
                 stride=self.stride,
                 drop_column_list=drop_column_list,
+                augmentation_pipeline=augmentation_pipeline,
+                is_training=True,  # Will be overridden for val dataset
             )
 
             # Update data info with non-windowed shape for now
@@ -455,27 +510,32 @@ class DataModule(L.LightningDataModule):
             val_size = int(len(labeled_dataset) * self.val_split)
             train_size = len(labeled_dataset) - val_size
 
-            train_subset, val_subset = random_split(
+            # Use random_split to get indices, then wrap with SubsetWithTrainingFlag
+            train_subset_temp, val_subset_temp = random_split(
                 labeled_dataset,
                 [train_size, val_size],
                 generator=self.trainValGenerator,
             )
+            
+            # Wrap subsets with proper is_training flags
+            train_subset = SubsetWithTrainingFlag(labeled_dataset, train_subset_temp.indices, is_training=True)
+            val_subset = SubsetWithTrainingFlag(labeled_dataset, val_subset_temp.indices, is_training=False)
 
             # NOW apply windowing separately to train and validation subsets
             # This prevents data leakage between sets
             if self.use_windowing:
-                # Apply windowing to train subset
-                train_dataset_windowed = self._apply_windowing_to_subset(train_subset)
+                # Apply windowing to train subset (with augmentation)
+                train_dataset_windowed = self._apply_windowing_to_subset(train_subset, is_training=True)
                 self.train_labeled = train_dataset_windowed
 
-                # Apply windowing to validation subset
-                val_dataset_windowed = self._apply_windowing_to_subset(val_subset)
+                # Apply windowing to validation subset (NO augmentation)
+                val_dataset_windowed = self._apply_windowing_to_subset(val_subset, is_training=False)
                 self.val_dataset = val_dataset_windowed
 
                 # Update data info with windowed shape
                 self.updateDataInfo(train_dataset_windowed)
             else:
-                # No windowing, use subsets as-is
+                # No windowing, use wrapped subsets directly
                 self.train_labeled = train_subset
                 self.val_dataset = val_subset
 
@@ -488,7 +548,8 @@ class DataModule(L.LightningDataModule):
                     )
 
                 # Load unlabeled test dataset with same windowing setting as training
-                # For autoencoder training, we can apply windowing to test data
+                # For autoencoder training, we can apply windowing AND augmentation to test data
+                # Apply augmentation to test data too when training autoencoder (helps reconstruction)
                 unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                     dataPath=os.path.join(self.data_dir, self.test_file_name),
                     labelsPath=None,
@@ -501,6 +562,8 @@ class DataModule(L.LightningDataModule):
                     window_size=self.window_size,
                     stride=self.stride,
                     drop_column_list=drop_column_list,
+                    augmentation_pipeline=augmentation_pipeline,  # Apply augmentation for autoencoder
+                    is_training=True,  # Enable augmentation for test data in autoencoder training
                 )
 
                 # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
@@ -518,6 +581,7 @@ class DataModule(L.LightningDataModule):
                     self.data_dir, self.test_global_features_file
                 )
 
+            # Load test dataset for inference - NO AUGMENTATION during prediction
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
@@ -530,9 +594,11 @@ class DataModule(L.LightningDataModule):
                 window_size=self.window_size,
                 stride=self.stride,
                 drop_column_list=drop_column_list,
+                augmentation_pipeline=None,  # No augmentation for inference
+                is_training=False,  # Disable augmentation during test/inference
             )
 
-    def _apply_windowing_to_subset(self, subset: Subset) -> TimeSeriesAndGlobalDataset:
+    def _apply_windowing_to_subset(self, subset: Subset, is_training: bool = True) -> TimeSeriesAndGlobalDataset:
         """
         Apply windowing to a subset of the dataset.
 
@@ -541,6 +607,7 @@ class DataModule(L.LightningDataModule):
 
         Args:
             subset: A Subset object containing indices into the original dataset
+            is_training: Whether this is a training dataset (enables augmentation)
 
         Returns:
             A new TimeSeriesAndGlobalDataset with windowing applied
@@ -563,6 +630,7 @@ class DataModule(L.LightningDataModule):
             subset_labels = None
 
         # Create new dataset with windowing enabled
+        # Augmentation only for training, not for validation/test
         windowed_dataset = TimeSeriesAndGlobalDataset(
             time_series_data=subset_time_series,
             global_data=subset_global,
@@ -570,6 +638,8 @@ class DataModule(L.LightningDataModule):
             use_windowing=True,  # Enable windowing
             window_size=self.window_size,
             stride=self.stride,
+            augmentation_pipeline=original_dataset.augmentation_pipeline if is_training else None,
+            is_training=is_training,
         )
 
         return windowed_dataset
@@ -700,15 +770,17 @@ class DataModule(L.LightningDataModule):
         splits = list(kfold.split(all_indices))
         train_indices, val_indices = splits[fold_idx]
 
-        # Create train and val subsets (non-windowed)
-        train_subset = Subset(self._full_labeled_dataset, train_indices.tolist())
-        val_subset = Subset(self._full_labeled_dataset, val_indices.tolist())
+        # Create train and val subsets with proper is_training flags
+        # Use SubsetWithTrainingFlag to ensure different augmentation behavior
+        train_subset = SubsetWithTrainingFlag(self._full_labeled_dataset, train_indices.tolist(), is_training=True)
+        val_subset = SubsetWithTrainingFlag(self._full_labeled_dataset, val_indices.tolist(), is_training=False)
 
         # Apply windowing separately to prevent leakage
         if self.use_windowing:
-            self.train_labeled = self._apply_windowing_to_subset(train_subset)
-            self.val_dataset = self._apply_windowing_to_subset(val_subset)
+            self.train_labeled = self._apply_windowing_to_subset(train_subset, is_training=True)
+            self.val_dataset = self._apply_windowing_to_subset(val_subset, is_training=False)
         else:
+            # For non-windowed datasets, just use the subsets directly
             self.train_labeled = train_subset
             self.val_dataset = val_subset
 
@@ -722,6 +794,10 @@ class DataModule(L.LightningDataModule):
                 )
 
             # Load unlabeled test dataset with same windowing setting
+            # Apply augmentation to test data for autoencoder reconstruction training
+            # Use augmentation_pipeline if available (may be None if not configured)
+            augmentation_pipeline = getattr(self, 'augmentation_pipeline', None)
+            
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
@@ -733,6 +809,8 @@ class DataModule(L.LightningDataModule):
                 use_windowing=self.use_windowing,  # Same windowing as train
                 window_size=self.window_size,
                 stride=self.stride,
+                augmentation_pipeline=augmentation_pipeline,  # Apply augmentation if configured
+                is_training=True,  # Enable augmentation for autoencoder training
             )
 
         # Optionally include unlabeled test data in training
