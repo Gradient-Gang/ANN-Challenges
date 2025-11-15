@@ -1129,7 +1129,7 @@ class FinalPipeline:
 
         # ==================== STEP 2.5: Configure Data Augmentation ====================
         # Data augmentation helps improve generalization by creating variations of training data
-        use_augmentation = trial.suggest_categorical("use_augmentation", [True, False])
+        use_augmentation = True
         
         augmentation_config = None
         if use_augmentation:
