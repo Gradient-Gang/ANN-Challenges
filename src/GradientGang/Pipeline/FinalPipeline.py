@@ -2338,7 +2338,7 @@ class FinalPipeline:
         archParams["LearningRate"] = 0.0005  # FIXED VALUE (must match training)
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
         archParams["OutputDim"] = 3
-        useClassWeights = best_params.get("use_class_weights", True)
+        useClassWeights = best_params.get("useClassWeights", True)
         archParams["ClassWeightsPath"] = self.data_params.get(
             "class_weights_path", "../dataset/PirateProcessed/class_weights.yaml" if useClassWeights else None
         )
