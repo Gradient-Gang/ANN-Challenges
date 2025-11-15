@@ -1,108 +1,21 @@
-
 \section{Methods}
 
-This section describes the methodological framework developed for the challenge. We detail the preprocessing pipeline designed to transform raw time series into structured model inputs, as well as the end-to-end training pipeline responsible for model construction, hyperparameter optimization, and validation. The goal is to provide a precise and reproducible description of all components that contribute to the final learning system.
+We have built a complete pipeline, from preprocessing that transforms raw time series into structured model inputs, to the end-to-end training framework responsible for model construction, hyperparameter optimization, and validation.
 
-\subsection{Pre-processing}
+\subsection*{Pre-processing}
+Let the raw dataset consist of $X \in \mathbb{R}^{N \times F \times T}$, where \(N\) denotes the number of samples, \(F\) the number of recorded features, and \(T\) the number of temporal observations per sample. The module is fully configurable through YAML.
 
-All data preparation procedures were implemented in a dedicated pre-processing module designed to convert the raw multivariate pirate–pain time–series dataset into normalized, feature-rich representations suitable for neural network training. Let the raw dataset consist of 
-\[
-X \in \mathbb{R}^{N \times F \times T},
-\]
-where \(N\) denotes the number of samples, \(F\) the number of recorded features, and \(T\) the number of temporal observations per sample.  
-The module is fully configurable through YAML files and is centered around a \texttt{PreProcessor} class, which encapsulates data loading, feature engineering, normalization, global feature extraction, dimensionality reduction, supervised feature selection, and class-weight computation. The output of the module includes normalized time series, subject-level global features, and class weights for imbalanced learning.
+Data Loading: After loading, each sample is represented as $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$. Categorical eye–status information is mapped to a binary pirate–indicator variable $\texttt{isPirate} \in \{0,1\}$, and redundant anthropometric variables are discarded. Optional one-hot encoding may be applied. Then, all continuous features are standardized using Z-score normalization, computed exclusively on the training set. For each feature \(f\) and time index \(t\),
+$\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f},$
+where \(\mu_f\) and \(\sigma_f\) are the mean and standard deviation estimated from the training data.
 
+Finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$ summarizing temporal dynamics, including statistical features (mean, variance, minimum, maximum, range) and domain-specific features (aggregated pain–survey descriptors and joint–activity statistics).
 
-\subsubsection{Data Loading}
-Training and test time series, together with the corresponding training labels, are loaded from CSV input files. An unused trailing column, originating from the acquisition pipeline, is removed before further processing. After loading, each sample is represented as
-\[
-X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}.
-\]
+When enabled, Principal Component Analysis is applied independently to each temporal feature trajectory $x_{i,f} = (x_{i,f}(1),\ldots,x_{i,f}(T))^\top \in \mathbb{R}^T$. PCA yields $x_{i,f} \approx U_f z_{i,f}$, where $U_f$ contains the leading eigenvectors and $z_{i,f}$ the corresponding Proper Orthogonal Decomposition (POD) coefficients. The number of retained components is the minimum $k$ such that
+$\sum_{j=1}^{k} \lambda_{f,j} \ge 0.95 \sum_{j=1}^{T} \lambda_{f,j},$
+with $\lambda_{f,j}$ denoting the eigenvalue magnitudes. All POD coefficients are appended to the global feature vector.
 
-\subsubsection{Feature Engineering}
-Categorical eye–status information is mapped to a binary pirate–indicator variable,
-\[
-\texttt{isPirate} \in \{0,1\},
-\]
-and redundant anthropometric variables are discarded. Optional one-hot encoding may be applied. These operations ensure a consistent and compact representation of categorical metadata.
+Global features are further refined through a multi-stage supervised selection procedure, including variance thresholding, removal of highly correlated features ($\rho>0.95$), Random Forest feature-importance ranking, and Mutual Information scoring. Depending on the strategy, the final subset is defined as the intersection of the top-ranked features across methods.
 
-\subsubsection{Normalization}
-All continuous features are standardized using Z-score normalization, computed exclusively on the training set. For each feature \(f\) and time index \(t\),
-\[
-\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f},
-\]
-where \(\mu_f\) and \(\sigma_f\) are respectively the sample mean and standard deviation estimated from the training data. Selected features may be excluded from normalization.
-
-\subsubsection{Global Feature Extraction}
-For each sample \(X_i\), a set of fixed-length global features is computed to summarize temporal dynamics. Three classes of descriptors are extracted:
-
-\begin{itemize}
-    \item \textbf{Statistical features}: mean, variance, minimum, maximum, and range,
-    \[
-    \text{mean}_f = \frac{1}{T}\sum_{t=1}^T x_{i,f}(t),
-    \]
-    
-    \[
-    \text{var}_f = \frac{1}{T-1}\sum_{t=1}^T \left(x_{i,f}(t)-\text{mean}_f\right)^2,
-    \]
-    
-    \[
-    \text{min}_f = \min_{1 \le t \le T} x_{i,f}(t), \qquad 
-    \text{max}_f = \max_{1 \le t \le T} x_{i,f}(t),
-    \]
-    
-    \[
-    \text{range}_f = \text{max}_f - \text{min}_f.
-    \]
-
-    
-    \item \textbf{Domain-specific features}: aggregated pain–survey descriptors and joint–activity statistics.
-\end{itemize}
-
-\noindent The resulting global feature vector for each sample is denoted by  
-\[
-g_i \in \mathbb{R}^{D},
-\]
-where \(D\) depends on the selected feature set.
-
-\subsubsection{PCA-POD: Dim. Reduction}
-When enabled, Principal Component Analysis is applied independently to each temporal feature trajectory. For feature \(f\), let
-\[
-x_{i,f} = (x_{i,f}(1),\ldots,x_{i,f}(T))^\top \in \mathbb{R}^{T}.
-\]
-PCA yields a decomposition
-\[
-x_{i,f} \approx U_f z_{i,f},
-\]
-where \(U_f\) contains the leading eigenvectors and \(z_{i,f}\) the corresponding Proper Orthogonal Decomposition (POD) coefficients. The number of retained components is the minimum \(k\) such that
-\[
-\sum_{j=1}^{k} \lambda_{f,j} \ge 0.95 \sum_{j=1}^{T} \lambda_{f,j},
-\]
-with \(\lambda_{f,j}\) denoting the eigenvalue magnitudes. All POD coefficients are appended to the global feature vector.
-
-\subsubsection{Supervised Feature Selection}
-The global features are further refined through a multi-stage supervised selection procedure, including:
-\begin{enumerate}
-    \item variance thresholding;  
-    \item removal of highly correlated features (\(\rho > 0.95\));  
-    \item Random Forest feature–importance ranking;  
-    \item Mutual Information scoring.
-\end{enumerate}
-Depending on the selection strategy, the final subset is defined as the intersection of the top-ranked features across methods. Mandatory identifiers (\texttt{sample\_index}, \texttt{isPirate}) are preserved.
-
-\subsubsection{Class-weight Computation}
-To address class imbalance in the labels \(y \in \{1,\ldots,C\}\), class weights are computed using the inverse-frequency scheme,
-\[
-w_c = \frac{N}{C\, N_c},
-\]
-where \(N_c\) denotes the number of samples belonging to class \(c\). These weights are exported for use during model training.
-
-\subsubsection{Output Generation}
-The pipeline produces:
-\begin{itemize}
-    \item normalized time series \(\hat{X} \in \mathbb{R}^{N \times F \times T}\);
-    \item global feature matrices \(G \in \mathbb{R}^{N \times D'}\), with \(D'\) dependent on PCA and feature selection;
-    \item class-weight files for training.
-\end{itemize}
-All outputs are written to the designated processed-data directory, ensuring complete reproducibility of the experiments.
-
+To address class imbalance the class weights are computed using the inverse-frequency scheme:
+$w_c = \frac{N}{C \, N_c},$ where $N_c$ denotes the number of samples belonging to class $c$.
