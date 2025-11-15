@@ -125,7 +125,7 @@ class Direct(L.LightningModule):
         self.register_buffer("class_weights", class_weights_tensor)
 
         # Initialize F1Score metric as instance variable
-        self.f1Function = F1Score(task="multiclass", num_classes=output_dim)
+        self.f1Function = F1Score(task="multiclass", num_classes=output_dim, average="macro")
 
         # Prepare prediction loss function using the registered class_weights buffer
         weight_tensor: Optional[torch.Tensor] = (

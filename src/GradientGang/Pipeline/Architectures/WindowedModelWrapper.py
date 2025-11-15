@@ -63,7 +63,7 @@ class WindowedModelWrapper(L.LightningModule):
             self.num_classes = 3  # Default for pirate pain dataset
 
         # Initialize F1 metric for sample-level predictions
-        self.f1_metric = F1Score(task="multiclass", num_classes=self.num_classes)
+        self.f1_metric = F1Score(task="multiclass", num_classes=self.num_classes, average="macro")
 
         # Save hyperparameters for logging
         self.save_hyperparameters(ignore=["base_model"])

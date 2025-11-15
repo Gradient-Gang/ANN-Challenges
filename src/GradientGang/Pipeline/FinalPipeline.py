@@ -1727,6 +1727,16 @@ class FinalPipeline:
         try:
             # Load model
             use_windowing = best_params.get("use_windowing", False)
+            
+            # DEBUG: Check if checkpoint has base_model prefix (indicates WindowedModelWrapper)
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            state_dict_keys = list(checkpoint["state_dict"].keys())
+            has_base_model_prefix = any(key.startswith("base_model.") for key in state_dict_keys)
+            
+            # Auto-detect windowing from checkpoint structure if parameter is missing
+            if has_base_model_prefix and not use_windowing:
+                print(f"  [AUTO-DETECT] Checkpoint has 'base_model.' prefix - enabling windowing")
+                use_windowing = True
 
             if use_windowing:
                 # Load wrapped model
@@ -2016,7 +2026,7 @@ class FinalPipeline:
                 "ReconstructionLossWeight", 0.5
             )
 
-        archParams["LearningRate"] = best_params["LearningRate"]
+        archParams["LearningRate"] = 0.0005
         archParams["RegularizationWeight"] = best_params["RegularizationWeight"]
         archParams["OutputDim"] = 3
         archParams["ClassWeightsPath"] = self.data_params.get(
@@ -2040,15 +2050,14 @@ class FinalPipeline:
 
         print("✓ Architecture reconstructed")
 
-        # Get expected fold scores
-        fold_scores_str = best_trial.user_attrs.get("fold_scores", "")
-        if fold_scores_str:
-            expected_fold_f1s = [float(x) for x in fold_scores_str.split(",")]
-        else:
-            print("⚠️ No fold scores found - skipping validation")
-            expected_fold_f1s = [None] * self.data_params["n_folds"]
-
         n_folds = self.data_params["n_folds"]
+        # Get expected fold scores
+        expected_fold_f1s = [best_trial.user_attrs[f"fold_{foldNum}"] for foldNum in range(n_folds) if f"fold_{foldNum}" in best_trial.user_attrs]
+
+        print(f"\nEnsemble details:")
+        for foldNum, fold_score in enumerate(expected_fold_f1s):
+            print(f"  Fold {foldNum}: Expected F1 Score = {fold_score:.4f}")
+        print("-" * 60)
 
         # ==================== STEP 1: Find all checkpoints ====================
         print(f"\n[STEP 1/3] Searching for checkpoints...")
