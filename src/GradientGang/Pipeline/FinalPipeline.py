@@ -102,6 +102,13 @@ class FinalPipeline:
         self.study = optuna.create_study(
             direction="maximize",  # Maximize F1 score
             sampler=optuna.samplers.TPESampler(seed=42),
+            pruner = optuna.pruners.PatientPruner(
+                optuna.pruners.MedianPruner(
+                    n_startup_trials=10,
+                    n_warmup_steps=1
+                ),
+                patience=1  # Bad for 2 consecutive folds → prune
+            ),
             study_name=self.project_name + self.study_name,
             storage=self.storage,
             load_if_exists=True,  # Resume from existing study if available
@@ -1280,22 +1287,54 @@ class FinalPipeline:
 
         # Train a separate model on each fold to get robust performance estimate
         for fold_idx in range(n_folds):
+            # Set deterministic seed for this fold (trial-specific + fold-specific)
+            # This ensures reproducibility but allows variation across folds
+            fold_seed = trial.number * 1000 + fold_idx
+            torch.manual_seed(fold_seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(fold_seed)
+                torch.cuda.manual_seed_all(fold_seed)
+            
             # Prepare data for this specific fold (different train/val split)
             kfold_dataLoader.setup_fold(
                 fold_idx, include_test_in_train=includeTestInTrain
             )
             trainLoader = kfold_dataLoader.train_dataloader()
             valLoader = kfold_dataLoader.val_dataloader()
+            
+            # Log fold statistics to debug why fold 2 performs consistently better
+            # Get validation labels to check class distribution (using torch operations)
+            val_labels_list = []
+            for batch in valLoader:
+                if isinstance(batch, dict):
+                    val_labels_list.append(batch['label'])
+                else:
+                    val_labels_list.append(batch[1])
+            val_labels = torch.cat(val_labels_list, dim=0)
+            val_label_counts = torch.bincount(val_labels, minlength=3)
+            print(f"[FOLD STATS] Fold {fold_idx}: Val set size={len(val_labels)}, "
+                  f"Class distribution: no_pain={val_label_counts[0].item()}, "
+                  f"low_pain={val_label_counts[1].item()}, high_pain={val_label_counts[2].item()}")
 
             # Create a fresh model instance for this fold (no weight sharing between folds)
             # CRITICAL: Deep copy archParams to prevent mutation across folds
             # The Direct/Autoencoder classes modify the params dict (e.g., appending output layer)
             archParams_copy = copy.deepcopy(archParams)
+            
+            # Debug: Log architecture params before model creation to check for mutation
+            print(f"[DEBUG] Fold {fold_idx}: FeedForward layers before model creation: "
+                  f"{archParams_copy['FeedForwardParams']['layer_type']}")
 
             if macroArchitecture == "Direct":
                 base_model = Direct(archParams_copy)
             else:
                 base_model = LightningAutoencoder(archParams_copy)
+            
+            # Debug: Check if archParams_copy was mutated after model creation
+            # If this differs from the "before" log, we have architecture mutation
+            if archParams_copy['FeedForwardParams']['layer_type'] != archParams['FeedForwardParams']['layer_type']:
+                print(f"[DEBUG] WARNING: Fold {fold_idx}: Architecture was mutated! "
+                      f"After model creation: {archParams_copy['FeedForwardParams']['layer_type']}")
 
             # Apply He initialization to base model
             ff_activation = archParams["FeedForwardParams"]["activation_function"]
@@ -1368,6 +1407,10 @@ class FinalPipeline:
                 fold_scores.append(best_f1)
                 trial.report(np.mean(fold_scores), step=fold_idx)
 
+                # Log the trial progress
+                trial.set_user_attr(f"fold_{fold_idx}", best_f1)
+
+
                 # Check if this trial should be pruned (stopped early)
                 if trial.should_prune():
                     raise optuna.TrialPruned()
@@ -1424,7 +1467,6 @@ class FinalPipeline:
         try:
             fold_scores_str = ",".join([f"{score:.6f}" for score in fold_scores])
             # Individual fold scores as CSV string
-            trial.set_user_attr("fold_scores", fold_scores_str)
             trial.set_user_attr("mean_f1", float(mean_f1))  # Mean across folds
             # Standard deviation (stability measure)
             trial.set_user_attr("std_f1", float(std_f1))
