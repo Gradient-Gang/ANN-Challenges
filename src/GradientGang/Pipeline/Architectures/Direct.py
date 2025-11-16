@@ -15,11 +15,11 @@ class Direct(L.LightningModule):
         name="DirectInterpreter",
         interpretation={
             "ClassWeightsPath": str,
-            "SchedulerMonitoringTarget": str,  # TODO: find a way to enforce this to be either "val" or "train"
+            "SchedulerMonitoringTarget": str,
+            "GlobalFFEncoderParams": dict,  # Optional - for global features
         },
         requiredParams={
             "EncoderParams": dict,
-            "GlobalFFEncoderParams": dict,
             "FeedForwardParams": dict,
             "OutputDim": int,
             "LearningRate": float,
@@ -45,12 +45,16 @@ class Direct(L.LightningModule):
         # Store params for later use
         self.params = params
 
-        self.schedulerMonitoringTarget = params.get("SchedulerMonitoringTarget", "val")
+        self.schedulerMonitoringTarget = params.get(
+            "SchedulerMonitoringTarget", "val")
 
         encoder_params = params["EncoderParams"]
-        global_ff_encoder_params = params["GlobalFFEncoderParams"]
+        global_ff_encoder_params = params.get("GlobalFFEncoderParams", None)
         feedforward_params = params["FeedForwardParams"]
         output_dim = params["OutputDim"]
+
+        # Track whether we use global features
+        self.use_global_features = global_ff_encoder_params is not None
 
         # Extract additional parameters if provided, with defaults
         num_input_channels = params.get("num_input_channels", 1)
@@ -61,7 +65,11 @@ class Direct(L.LightningModule):
         self.encoder = Encoder(
             encoder_params, num_input_channels, base_channel_size, latent_dim, act_fn
         )
-        self.globalff_encoder = FeedForward(global_ff_encoder_params)
+
+        if self.use_global_features:
+            self.globalff_encoder = FeedForward(global_ff_encoder_params)
+        else:
+            self.globalff_encoder = None
 
         # Add a final linear layer to feedforward to match output_dim
         feedforward_params["layer_type"].append(
@@ -100,7 +108,8 @@ class Direct(L.LightningModule):
                         elif str(i) in loaded:
                             class_weights_list.append(loaded[str(i)])
                         else:
-                            raise KeyError(f"Missing class weight for index {i}")
+                            raise KeyError(
+                                f"Missing class weight for index {i}")
                     class_weights_tensor = torch.tensor(
                         class_weights_list, dtype=torch.float32
                     )
@@ -113,7 +122,8 @@ class Direct(L.LightningModule):
                         list(loaded), dtype=torch.float32
                     )
                 else:
-                    raise TypeError("ClassWeights YAML must contain a dict or list")
+                    raise TypeError(
+                        "ClassWeights YAML must contain a dict or list")
 
             except Exception as e:
                 # Fall back to ones but print a concise warning
@@ -125,13 +135,16 @@ class Direct(L.LightningModule):
         self.register_buffer("class_weights", class_weights_tensor)
 
         # Initialize F1Score metric as instance variable
-        self.f1Function = F1Score(task="multiclass", num_classes=output_dim, average="weighted")
+        self.f1Function = F1Score(
+            task="multiclass", num_classes=output_dim, average="weighted")
 
         # Prepare prediction loss function using the registered class_weights buffer
         weight_tensor: Optional[torch.Tensor] = (
-            self.class_weights if isinstance(self.class_weights, torch.Tensor) else None
+            self.class_weights if isinstance(
+                self.class_weights, torch.Tensor) else None
         )
-        self.predictionLossFunction = torch.nn.CrossEntropyLoss(weight=weight_tensor)
+        self.predictionLossFunction = torch.nn.CrossEntropyLoss(
+            weight=weight_tensor)
 
     def computePredictionLoss(
         self, classTargets: torch.Tensor, classPredictions: torch.Tensor
@@ -164,7 +177,8 @@ class Direct(L.LightningModule):
         if labeled_mask.any():
             availableTargets = classTargets[labeled_mask]
             availablePredictionsLogits = classPredictions[labeled_mask]
-            availablePredictions = torch.argmax(availablePredictionsLogits, dim=1)
+            availablePredictions = torch.argmax(
+                availablePredictionsLogits, dim=1)
             f1 = self.f1Function(availablePredictions, availableTargets)
         return f1
 
@@ -181,12 +195,15 @@ class Direct(L.LightningModule):
         timeSeries = x[0]
         globalFeatures = x[1]
         encoded_timeSeries = self.encoder(timeSeries)
-        encoded_globalFeatures = self.globalff_encoder(globalFeatures)
 
-        # Combine encoded features and pass through feedforward network
-        combined_encoded = torch.cat(
-            (encoded_timeSeries, encoded_globalFeatures), dim=1
-        )
+        if self.use_global_features:
+            encoded_globalFeatures = self.globalff_encoder(globalFeatures)
+            combined_encoded = torch.cat(
+                (encoded_timeSeries, encoded_globalFeatures), dim=1
+            )
+        else:
+            combined_encoded = encoded_timeSeries
+
         predictions = self.feedforward(combined_encoded)
 
         # Return final predictions (shape: batch x output_dim)
@@ -281,7 +298,8 @@ class Direct(L.LightningModule):
         classPredictions = self.forward(inputData)
 
         # Compute prediction loss
-        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
+        predictionLoss = self.computePredictionLoss(
+            classTargets, classPredictions)
 
         # Compute complete loss
         loss = predictionLoss
@@ -313,7 +331,8 @@ class Direct(L.LightningModule):
         classPredictions = self.forward(inputData)
 
         # Compute prediction loss
-        predictionLoss = self.computePredictionLoss(classTargets, classPredictions)
+        predictionLoss = self.computePredictionLoss(
+            classTargets, classPredictions)
 
         # Compute complete loss
         loss = predictionLoss

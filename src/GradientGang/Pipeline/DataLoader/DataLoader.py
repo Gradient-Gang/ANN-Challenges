@@ -21,10 +21,11 @@ class SubsetWithTrainingFlag(Subset):
     when accessing items. This allows train and val subsets from the same dataset
     to have different augmentation behavior.
     """
+
     def __init__(self, dataset, indices, is_training: bool):
         super().__init__(dataset, indices)
         self._is_training = is_training
-        
+
     def __getitem__(self, idx):
         # Temporarily override is_training flag
         original_is_training = self.dataset.is_training
@@ -117,7 +118,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
                     col for col in global_features_df.columns if col != primaryKeyColumn
                 ]
                 globalFeatures = global_features_df[globalColumns].to_numpy()
-                globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+                globalFeatures = torch.tensor(
+                    globalFeatures, dtype=torch.float32)
                 global_features_loaded_separately = True
             except Exception as e:
                 print(
@@ -126,16 +128,21 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 print(
                     "Falling back to extracting global features from time series data."
                 )
-                globalColumns = data_df.columns.intersection(globalColumns).tolist()
+                globalColumns = data_df.columns.intersection(
+                    globalColumns).tolist()
                 globalFeatures = (
-                    data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
+                    data_df.groupby(primaryKeyColumn).first()[
+                        globalColumns].to_numpy()
                 )
-                globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+                globalFeatures = torch.tensor(
+                    globalFeatures, dtype=torch.float32)
         else:
             # Extract global features from time series data (original behavior)
-            globalColumns = data_df.columns.intersection(globalColumns).tolist()
+            globalColumns = data_df.columns.intersection(
+                globalColumns).tolist()
             globalFeatures = (
-                data_df.groupby(primaryKeyColumn).first()[globalColumns].to_numpy()
+                data_df.groupby(primaryKeyColumn).first()[
+                    globalColumns].to_numpy()
             )
             globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
 
@@ -153,7 +160,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
             # Only extract global features from time series if they weren't loaded separately
             if not global_features_loaded_separately:
                 globalFeatures = grouped[globalColumns].to_numpy()
-                globalFeatures = torch.tensor(globalFeatures, dtype=torch.float32)
+                globalFeatures = torch.tensor(
+                    globalFeatures, dtype=torch.float32)
 
             # Process time series data
             if timeSeriesColumns is None:
@@ -162,7 +170,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
                 ).tolist()
 
             # Pivot and stack time series data
-            timeSeriesDF = data_df[[primaryKeyColumn, "time"] + timeSeriesColumns]
+            timeSeriesDF = data_df[[
+                primaryKeyColumn, "time"] + timeSeriesColumns]
             # Pivot each feature and reindex to ensure the same sample order as grouped
             timeSeries_list = []
             for feat in timeSeriesColumns:
@@ -173,7 +182,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
             timeSeries = np.stack(timeSeries_list, axis=-1)
             timeSeries = torch.tensor(timeSeries, dtype=torch.float32)
-            timeSeries = timeSeries.permute(0, 2, 1)  # (samples, features, time)
+            timeSeries = timeSeries.permute(
+                0, 2, 1)  # (samples, features, time)
 
         # No time series data
         else:
@@ -260,7 +270,7 @@ class TimeSeriesAndGlobalDataset(Dataset):
         self.use_windowing = use_windowing
         self.window_size = window_size
         self.stride = stride
-        
+
         # Augmentation parameters
         self.augmentation_pipeline = augmentation_pipeline
         self.is_training = is_training
@@ -279,8 +289,10 @@ class TimeSeriesAndGlobalDataset(Dataset):
         # Compute numClasses efficiently (avoid repeated .max() calls)
         if labels is not None and len(labels) > 0:
             # Use labels.unique() which is more efficient than max() for this purpose
-            unique_labels = labels[labels >= 0].unique()  # Exclude -1 (unlabeled)
-            self.numClasses = len(unique_labels) if len(unique_labels) > 0 else 0
+            # Exclude -1 (unlabeled)
+            unique_labels = labels[labels >= 0].unique()
+            self.numClasses = len(unique_labels) if len(
+                unique_labels) > 0 else 0
         else:
             self.numClasses = 0
 
@@ -290,7 +302,8 @@ class TimeSeriesAndGlobalDataset(Dataset):
         seq_len = self.time_series_data.shape[2]  # Same for all samples
 
         # Pre-calculate number of windows per sample for efficient allocation
-        num_windows_per_sample = ((seq_len - self.window_size) // self.stride) + 1
+        num_windows_per_sample = (
+            (seq_len - self.window_size) // self.stride) + 1
 
         # Generate all window positions for one sample (reusable pattern)
         window_starts = list(range(0, seq_len, self.stride))
@@ -337,10 +350,11 @@ class TimeSeriesAndGlobalDataset(Dataset):
                     windowed_ts = torch.nn.functional.pad(
                         windowed_ts, (0, pad_size), mode="constant", value=0
                     )
-                
+
                 # Apply augmentation to windowed time series (training only)
                 if self.is_training and self.augmentation_pipeline is not None:
-                    windowed_ts = self.augmentation_pipeline.apply(windowed_ts, index)
+                    windowed_ts = self.augmentation_pipeline.apply(
+                        windowed_ts, index)
             else:
                 windowed_ts = None
 
@@ -352,11 +366,11 @@ class TimeSeriesAndGlobalDataset(Dataset):
 
         # Original behavior: retrieve the full sample at the specified index
         time_series = self.time_series_data[index] if self.time_series_data is not None else None
-        
+
         # Apply augmentation to full time series (training only)
         if self.is_training and self.augmentation_pipeline is not None and time_series is not None:
             time_series = self.augmentation_pipeline.apply(time_series, index)
-        
+
         return (
             time_series,
             self.global_data[index],
@@ -415,8 +429,10 @@ class DataModule(L.LightningDataModule):
         self.timeSeriesColumns = params.get("timeSeriesColumns", None)
 
         # Optional: Separate file for global features
-        self.train_global_features_file = params.get("train_global_features_file", None)
-        self.test_global_features_file = params.get("test_global_features_file", None)
+        self.train_global_features_file = params.get(
+            "train_global_features_file", None)
+        self.test_global_features_file = params.get(
+            "test_global_features_file", None)
 
         # Label mapping for converting string labels to integers
         # Default mapping for pirate pain dataset
@@ -438,7 +454,7 @@ class DataModule(L.LightningDataModule):
         self.use_windowing = params.get("use_windowing", False)
         self.window_size = params.get("window_size", 160)
         self.stride = params.get("stride", 160)
-        
+
         # Augmentation parameters
         self.augmentation_config = params.get("augmentation_config", None)
         self.augmentation_seed = params.get("augmentation_seed", 42)
@@ -464,7 +480,8 @@ class DataModule(L.LightningDataModule):
         """
 
         # Load and split datasets based on the stage
-        # if stage is "fit", load training and validation datasets
+        # Load datasets based on stage
+        # Note: Test data included in training (for autoencoder) should NOT be augmented
         if stage == "fit" or stage is None:
             # Determine global features file path
             train_global_path = None
@@ -472,7 +489,7 @@ class DataModule(L.LightningDataModule):
                 train_global_path = os.path.join(
                     self.data_dir, self.train_global_features_file
                 )
-            
+
             # Create augmentation pipeline if configured
             augmentation_pipeline = None
             if self.augmentation_config is not None:
@@ -484,7 +501,8 @@ class DataModule(L.LightningDataModule):
             # Windowing will be applied AFTER train/val split to prevent data leakage
             labeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.train_file_name),
-                labelsPath=os.path.join(self.data_dir, self.train_file_name_labels),
+                labelsPath=os.path.join(
+                    self.data_dir, self.train_file_name_labels),
                 labelMapping=list(self.label_mapping.keys()),
                 globalColumns=self.globalFeaturesColumns,
                 primaryKeyColumn=self.primaryKeyColumn,
@@ -516,20 +534,24 @@ class DataModule(L.LightningDataModule):
                 [train_size, val_size],
                 generator=self.trainValGenerator,
             )
-            
+
             # Wrap subsets with proper is_training flags
-            train_subset = SubsetWithTrainingFlag(labeled_dataset, train_subset_temp.indices, is_training=True)
-            val_subset = SubsetWithTrainingFlag(labeled_dataset, val_subset_temp.indices, is_training=False)
+            train_subset = SubsetWithTrainingFlag(
+                labeled_dataset, train_subset_temp.indices, is_training=True)
+            val_subset = SubsetWithTrainingFlag(
+                labeled_dataset, val_subset_temp.indices, is_training=False)
 
             # NOW apply windowing separately to train and validation subsets
             # This prevents data leakage between sets
             if self.use_windowing:
                 # Apply windowing to train subset (with augmentation)
-                train_dataset_windowed = self._apply_windowing_to_subset(train_subset, is_training=True)
+                train_dataset_windowed = self._apply_windowing_to_subset(
+                    train_subset, is_training=True)
                 self.train_labeled = train_dataset_windowed
 
                 # Apply windowing to validation subset (NO augmentation)
-                val_dataset_windowed = self._apply_windowing_to_subset(val_subset, is_training=False)
+                val_dataset_windowed = self._apply_windowing_to_subset(
+                    val_subset, is_training=False)
                 self.val_dataset = val_dataset_windowed
 
                 # Update data info with windowed shape
@@ -548,8 +570,8 @@ class DataModule(L.LightningDataModule):
                     )
 
                 # Load unlabeled test dataset with same windowing setting as training
-                # For autoencoder training, we can apply windowing AND augmentation to test data
-                # Apply augmentation to test data too when training autoencoder (helps reconstruction)
+                # CRITICAL FIX: Test data should NEVER be augmented, even for autoencoder training
+                # Augmentation changes the data distribution and can cause overfitting
                 unlabeled_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                     dataPath=os.path.join(self.data_dir, self.test_file_name),
                     labelsPath=None,
@@ -562,8 +584,8 @@ class DataModule(L.LightningDataModule):
                     window_size=self.window_size,
                     stride=self.stride,
                     drop_column_list=drop_column_list,
-                    augmentation_pipeline=augmentation_pipeline,  # Apply augmentation for autoencoder
-                    is_training=True,  # Enable augmentation for test data in autoencoder training
+                    augmentation_pipeline=None,  # NO augmentation for test data
+                    is_training=False,  # Disable augmentation for test data
                 )
 
                 # For reconstruction training we allow unlabeled test data to be mixed with labeled train data
@@ -670,7 +692,8 @@ class DataModule(L.LightningDataModule):
 
         # Check if training dataset is initialized
         if self.train_dataset is None:
-            raise RuntimeError("Training dataset not initialized. Call setup() first.")
+            raise RuntimeError(
+                "Training dataset not initialized. Call setup() first.")
 
         # Return the DataLoader for training dataset
         return TorchDataLoader(
@@ -710,7 +733,8 @@ class DataModule(L.LightningDataModule):
 
         # Check if test dataset is initialized
         if self.test_dataset is None:
-            raise RuntimeError("Test dataset not initialized. Call setup() first.")
+            raise RuntimeError(
+                "Test dataset not initialized. Call setup() first.")
 
         # Return the DataLoader for test dataset
         return TorchDataLoader(
@@ -750,7 +774,8 @@ class DataModule(L.LightningDataModule):
             Must call setup(stage='fit') before using this method to load the full dataset.
         """
         if not self.use_kfold:
-            raise RuntimeError("K-Fold is not enabled. Set use_kfold=True in params.")
+            raise RuntimeError(
+                "K-Fold is not enabled. Set use_kfold=True in params.")
 
         if self._full_labeled_dataset is None:
             raise RuntimeError(
@@ -763,22 +788,28 @@ class DataModule(L.LightningDataModule):
             )
 
         # Create K-Fold splitter
-        kfold = StratifiedKFold(n_splits=self.n_folds, shuffle=True, random_state=42)
+        kfold = StratifiedKFold(n_splits=self.n_folds,
+                                shuffle=True, random_state=42)
 
         # Get train/val indices for this fold
         all_indices = np.arange(len(self._full_labeled_dataset))
-        splits = list(kfold.split(all_indices, self._full_labeled_dataset.labels.numpy()))
+        splits = list(kfold.split(
+            all_indices, self._full_labeled_dataset.labels.numpy()))
         train_indices, val_indices = splits[fold_idx]
 
         # Create train and val subsets with proper is_training flags
         # Use SubsetWithTrainingFlag to ensure different augmentation behavior
-        train_subset = SubsetWithTrainingFlag(self._full_labeled_dataset, train_indices.tolist(), is_training=True)
-        val_subset = SubsetWithTrainingFlag(self._full_labeled_dataset, val_indices.tolist(), is_training=False)
+        train_subset = SubsetWithTrainingFlag(
+            self._full_labeled_dataset, train_indices.tolist(), is_training=True)
+        val_subset = SubsetWithTrainingFlag(
+            self._full_labeled_dataset, val_indices.tolist(), is_training=False)
 
         # Apply windowing separately to prevent leakage
         if self.use_windowing:
-            self.train_labeled = self._apply_windowing_to_subset(train_subset, is_training=True)
-            self.val_dataset = self._apply_windowing_to_subset(val_subset, is_training=False)
+            self.train_labeled = self._apply_windowing_to_subset(
+                train_subset, is_training=True)
+            self.val_dataset = self._apply_windowing_to_subset(
+                val_subset, is_training=False)
         else:
             # For non-windowed datasets, just use the subsets directly
             self.train_labeled = train_subset
@@ -796,8 +827,9 @@ class DataModule(L.LightningDataModule):
             # Load unlabeled test dataset with same windowing setting
             # Apply augmentation to test data for autoencoder reconstruction training
             # Use augmentation_pipeline if available (may be None if not configured)
-            augmentation_pipeline = getattr(self, 'augmentation_pipeline', None)
-            
+            augmentation_pipeline = getattr(
+                self, 'augmentation_pipeline', None)
+
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
@@ -815,7 +847,8 @@ class DataModule(L.LightningDataModule):
 
         # Optionally include unlabeled test data in training
         if include_test_in_train and self.test_dataset is not None:
-            self.train_dataset = ConcatDataset([self.train_labeled, self.test_dataset])
+            self.train_dataset = ConcatDataset(
+                [self.train_labeled, self.test_dataset])
         else:
             self.train_dataset = self.train_labeled
 
@@ -837,7 +870,8 @@ class DataModule(L.LightningDataModule):
                 len(self._full_labeled_dataset) if self._full_labeled_dataset else None
             ),
             "train_size": (
-                len(self.train_labeled) if hasattr(self, "train_labeled") else None
+                len(self.train_labeled) if hasattr(
+                    self, "train_labeled") else None
             ),
             "val_size": len(self.val_dataset) if hasattr(self, "val_dataset") else None,
         }
