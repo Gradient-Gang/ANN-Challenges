@@ -2,20 +2,18 @@
 
 We have built a complete pipeline, from preprocessing that transforms raw time series into structured model inputs, to the end-to-end training framework responsible for model construction, hyperparameter optimization, and validation.
 
-\subsection*{Pre-processing}
-Let the raw dataset consist of $X \in \mathbb{R}^{N \times F \times T}$, where \(N\) denotes the number of samples, \(F\) the number of recorded features, and \(T\) the number of temporal observations per sample. The module is fully configurable through YAML.
+\noindent \textbf{3.1 Pre-processing}
 
-Data Loading: After loading, each sample is represented as $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$. Categorical eye–status information is mapped to a binary pirate–indicator variable $\texttt{isPirate} \in \{0,1\}$, and redundant anthropometric variables are discarded. Optional one-hot encoding may be applied. Then, all continuous features are standardized using Z-score normalization, computed exclusively on the training set. For each feature \(f\) and time index \(t\),
-$\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f},$
-where \(\mu_f\) and \(\sigma_f\) are the mean and standard deviation estimated from the training data.
+\noindent Let the raw dataset consist of $X \in \mathbb{R}^{N \times F \times T}$, where $N = \#\text{samples},$ $ F = \#\text{features},$ $ T =\text{time}$
 
-Finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$ summarizing temporal dynamics, including statistical features (mean, variance, minimum, maximum, range) and domain-specific features (aggregated pain–survey descriptors and joint–activity statistics).
 
-When enabled, Principal Component Analysis is applied independently to each temporal feature trajectory $x_{i,f} = (x_{i,f}(1),\ldots,x_{i,f}(T))^\top \in \mathbb{R}^T$. PCA yields $x_{i,f} \approx U_f z_{i,f}$, where $U_f$ contains the leading eigenvectors and $z_{i,f}$ the corresponding Proper Orthogonal Decomposition (POD) coefficients. The number of retained components is the minimum $k$ such that
-$\sum_{j=1}^{k} \lambda_{f,j} \ge 0.95 \sum_{j=1}^{T} \lambda_{f,j},$
-with $\lambda_{f,j}$ denoting the eigenvalue magnitudes. All POD coefficients are appended to the global feature vector.
+Data Loading: After loading, each sample is $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$ so firstly we map physical informations to a binary pirate–indicator variable $\texttt{isPirate} \in \{0,1\}$, then, all continuous features are standardized using Z-score normalization, i.e. $\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f}.$ 
+%where \(\mu_f\) and \(\sigma_f\) are the mean and standard deviation.
+Finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$ summarizing temporal dynamics, including statistical features (mean, variance, minimum, maximum, range) and domain-specific features (aggregated pain–survey and joint–activity statistics).
 
-Global features are further refined through a multi-stage supervised selection procedure, including variance thresholding, removal of highly correlated features ($\rho>0.95$), Random Forest feature-importance ranking, and Mutual Information scoring. Depending on the strategy, the final subset is defined as the intersection of the top-ranked features across methods.
+Additionaly, when enabled PCA is applied independently to each trajectory $x_{i,f} = (x_{i,f}(1),\ldots,x_{i,f}(T))^\top \in \mathbb{R}^T$. PCA yields $x_{i,f} \approx U_f z_{i,f}$, where $U_f$ contains the leading eigenvectors and $z_{i,f}$ the corresponding POD coefficients. The number of retained components is the minimum $k$ s.t. $\sum_{j=1}^{k} \lambda_{f,j} \ge 0.95 \sum_{j=1}^{T} \lambda_{f,j},$
+with $\lambda_{f,j}$ once computed POD coefficients are appended to the global feature vector.
 
-To address class imbalance the class weights are computed using the inverse-frequency scheme:
-$w_c = \frac{N}{C \, N_c},$ where $N_c$ denotes the number of samples belonging to class $c$.
+Global features are refined through a multi-stage selection procedure, including variance thresholding, removal of highly correlated features ($\rho>0.95$), Random Forest feature-importance ranking, and Mutual Information scoring. The final subset is defined as the intersection of the top-ranked features across methods.
+
+Additionally to address class imbalance the class weights are computed using the inverse-frequency scheme: $w_c = \frac{N}{C \, N_c},$ where $N_c = \#\{ \text{samples } \in c \}$.
