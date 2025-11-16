@@ -1,9 +1,11 @@
 \section{Discussion}
-Discussion
 
-\textcolor{red}{\textbf{TODO}
-    In this section, analyse your results critically. Consider:
-    \begin{itemize}
-        \item Strengths and weaknesses
-        \item Limitations and assumptions
-    \end{itemize}}
+The experimentation phase highlights how combining a MultiScaleCNN encoder with an autoencoder-based macroarchitecture allowed the model to effectively capture both local and multiscale temporal dependencies, especially when paired with windowed training and majority-vote aggregation.
+
+Data augmentations such as jittering, scaling, and time warping further improved robustness, although their impact was constrained by the limited dataset size. While global features contributed meaningfully to performance—supported by a multi-layer embedding module—the classification of minority classes, particularly High Pain, remained challenging despite class-weighting strategies. 
+
+The strong dependence on window-level supervision suggests that temporal segmentation helped stabilize learning but may have introduced sensitivity to the chosen window size and stride.
+
+Overall, the system demonstrates solid generalization within the competition constraints, yet performance bottlenecks appear primarily linked to the limited expressiveness of the data rather than architectural insufficiency.
+
+

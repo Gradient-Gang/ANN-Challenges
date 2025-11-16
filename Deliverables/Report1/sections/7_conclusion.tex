@@ -1,10 +1,7 @@
 \section{Conclusions}
-Conclusions
 
-\textcolor{red}{\textbf{TODO}
-    Summarise your work and discuss potential future directions. This is where you can:
-    \begin{itemize}
-        \item Restate main contributions
-        \item Suggest improvements
-        \item Propose future work
-    \end{itemize}}
+This work presented a complete pipeline for pain-level classification from multivariate time series, integrating preprocessing, feature extraction, a MultiScaleCNN-based autoencoder architecture, extensive hyperparameter optimization, and robust evaluation via K-fold cross-validation.
+
+The best-performing configuration leveraged multiscale temporal convolutions, a compact global-feature branch, and windowed prediction aggregation, achieving strong overall performance and validating the effectiveness of modular temporal modeling. The study also revealed key limitations, including class imbalance and the difficulty of capturing distinctive patterns for rarer pain levels. 
+
+Future improvements could involve integrating attention-based encoders, experimenting with self-supervised temporal representations, or employing ensemble strategies to reduce variance. Expanding the dataset or augmenting it with synthetic but physiologically meaningful trajectories could further enhance performance, especially for underrepresented classes.
