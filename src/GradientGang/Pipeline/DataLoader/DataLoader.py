@@ -825,11 +825,8 @@ class DataModule(L.LightningDataModule):
                 )
 
             # Load unlabeled test dataset with same windowing setting
-            # Apply augmentation to test data for autoencoder reconstruction training
-            # Use augmentation_pipeline if available (may be None if not configured)
-            augmentation_pipeline = getattr(
-                self, 'augmentation_pipeline', None)
-
+            # DO NOT augment test data - this causes data leakage and fold performance degradation
+            # Test data should always have is_training=False and no augmentation_pipeline
             self.test_dataset = TimeSeriesAndGlobalDataset.fromCSV(
                 dataPath=os.path.join(self.data_dir, self.test_file_name),
                 labelsPath=None,
@@ -841,8 +838,8 @@ class DataModule(L.LightningDataModule):
                 use_windowing=self.use_windowing,  # Same windowing as train
                 window_size=self.window_size,
                 stride=self.stride,
-                augmentation_pipeline=augmentation_pipeline,  # Apply augmentation if configured
-                is_training=True,  # Enable augmentation for autoencoder training
+                augmentation_pipeline=None,  # Never augment test data
+                is_training=False,  # Test data should not be augmented
             )
 
         # Optionally include unlabeled test data in training

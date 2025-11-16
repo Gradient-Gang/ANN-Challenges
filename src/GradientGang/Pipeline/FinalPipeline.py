@@ -1026,7 +1026,8 @@ class FinalPipeline:
                     for encLayer in globalEncoderLayers:
                         if encLayer["name"] == "Dropout":
                             globalDecoderLayerList.append(
-                                {"name": "Dropout", "params": encLayer["params"]}
+                                {"name": "Dropout",
+                                    "params": encLayer["params"]}
                             )
                             break
 
@@ -1538,6 +1539,12 @@ class FinalPipeline:
                 trial.set_user_attr("Error", str(e))
                 # Prune the trial if any fold fails
                 raise optuna.TrialPruned() from e
+            finally:
+                # Explicit cleanup to prevent memory accumulation across folds
+                # Delete model and trainer to free GPU memory
+                del model
+                del base_model
+                del trainer
 
         # ==================== STEP 8: Calculate Cross-Validation Metrics ====================
         # Aggregate performance across all folds
