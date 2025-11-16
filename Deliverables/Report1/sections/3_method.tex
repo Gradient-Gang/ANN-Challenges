@@ -1,10 +1,12 @@
+\vspace{-20pt}
 \section{Methods}
-
+\vspace{-10pt}
 We have built a complete pipeline, from preprocessing that transforms raw time series into structured model inputs, to the end-to-end training framework responsible for model construction, hyperparameter optimization, and validation.
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{Deliverables/Report1/img/PIPELINE.png}
-    \label{fig:Architectures}
+    \label{fig:Architectures} 
+    \vspace{-20pt}
 \end{figure}
 
 \noindent \textbf{3.1 Pre-processing}
@@ -12,13 +14,12 @@ We have built a complete pipeline, from preprocessing that transforms raw time s
 \noindent Let the raw dataset consist of $X \in \mathbb{R}^{N \times F \times T}$, where $N = \#\text{samples},$ $ F = \#\text{features},$ $ T =\text{time}$
 
 
-Data Loading: After loading, each sample is $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$ so firstly we map physical informations to a binary pirate–indicator variable $\texttt{isPirate} \in \{0,1\}$, then, all continuous features are standardized using Z-score normalization, i.e. $\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f}.$ 
+Data Loading: After loading, each sample is $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$. Firstly we map physical informations ('n\_eyes', 'n\_legs, 'n\_hands') to a binary pirate–indicator $\texttt{isPirate} \in \{0,1\}$ since they have the same distibution, then we remove the signal 'joint\_30' since it's constant. After that, all continuous features are standardized using Z-score normalization, i.e. $\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f}.$ 
 %where \(\mu_f\) and \(\sigma_f\) are the mean and standard deviation.
 Finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$ summarizing temporal dynamics, including statistical features (mean, variance, minimum, maximum, range) and domain-specific features (aggregated pain–survey and joint–activity statistics).
 
 Additionaly, when enabled PCA is applied independently to each trajectory $x_{i,f} = (x_{i,f}(1),\ldots,x_{i,f}(T))^\top \in \mathbb{R}^T$. PCA yields $x_{i,f} \approx U_f z_{i,f}$, where $U_f$ contains the leading eigenvectors and $z_{i,f}$ the corresponding POD coefficients. The number of retained components is the minimum $k$ s.t. $\sum_{j=1}^{k} \lambda_{f,j} \ge 0.95 \sum_{j=1}^{T} \lambda_{f,j},$
 with $\lambda_{f,j}$ once computed POD coefficients are appended to the global feature vector.
 
-Global features are refined through a multi-stage selection procedure, including variance thresholding, removal of highly correlated features ($\rho>0.95$), Random Forest feature-importance ranking, and Mutual Information scoring. The final subset is defined as the intersection of the top-ranked features across methods.
+Global features are refined through a multi-stage selection procedure, including variance thresholding, removal of highly correlated features ($\rho>0.95$), Random Forest feature-importance ranking, and Mutual Information scoring. The final subset is defined as the intersection of the top-ranked features across methods. Additionally, to address class imbalance the class weights are computed using the inverse-frequency scheme: $w_c = \frac{N}{C \, N_c},$ where $N_c = \#\{ \text{samples } \in c \}$.
 
-Additionally to address class imbalance the class weights are computed using the inverse-frequency scheme: $w_c = \frac{N}{C \, N_c},$ where $N_c = \#\{ \text{samples } \in c \}$.
