@@ -1,11 +1,10 @@
 \section{Discussion}
 
-The experimentation phase highlights how combining a MultiScaleCNN encoder with an autoencoder-based macroarchitecture allowed the model to effectively capture both local and multiscale temporal dependencies, especially when paired with windowed training and majority-vote aggregation.
+The experimentation phase highlights that the most promising architecture is the autoencoder, thanks to its self-supervised properties, while at the micro-architecture level MultiScaleCNNs and recurrent layers both perform well because they capture local and multiscale temporal dependencies.
 
-Data augmentations such as jittering, scaling, and time warping further improved robustness, although their impact was constrained by the limited dataset size. While global features contributed meaningfully to performance—supported by a multi-layer embedding module—the classification of minority classes, particularly High Pain, remained challenging despite class-weighting strategies. 
+Data augmentations such as jittering, scaling, and time warping further improved robustness, although their impact was constrained by the limited dataset size. While global features also contributed meaningfully to performance—supported by a multi-layer embedding module—the classification of minority classes, particularly High Pain, remained challenging despite class-weighting strategies.
 
-The strong dependence on window-level supervision suggests that temporal segmentation helped stabilize learning but may have introduced sensitivity to the chosen window size and stride.
+Overall, the system demonstrates solid generalization within the competition constraints, yet performance bottlenecks appear to be primarily linked to the limited expressiveness of the data rather than architectural insufficiency.
 
-Overall, the system demonstrates solid generalization within the competition constraints, yet performance bottlenecks appear primarily linked to the limited expressiveness of the data rather than architectural insufficiency.
 
 

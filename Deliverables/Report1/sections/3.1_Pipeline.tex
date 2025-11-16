@@ -1,36 +1,37 @@
-\subsection*{Pipeline}
+\textbf{3.2 Pipeline}
 
-The Pipeline module provides a production-grade orchestration framework for end-to-end deep learning experiments with automated hyperparameter optimization.  
+\noindent The Pipeline module provides a production-grade orchestration framework for end-to-end deep learning experiments with automated hyperparameter optimization.  
 Its central component, the \texttt{FinalPipeline} class, performs architecture selection, $K$-fold cross-validation, checkpointing, distributed training, and submission generation.  
-The system integrates Optuna with TPE sampler and Median Pruner, PostgreSQL for persistent experiment tracking, PyTorch Lightning for modular training and logging, and TensorBoard for monitoring.  
+The system integrates Optuna with TPE sampler and Median Pruner, a DB for persistent experiment tracking, PyTorch Lightning for modular training and logging, and TensorBoard for monitoring.  
 The module supports multiple macro–architectures made of modular micro-architectures.
 
-Given a dataset 
+Given the datasets 
 $X \in \mathbb{R}^{N \times F \times T}$, $G \in \mathbb{R}^{N \times D}$,
-the pipeline automates the selection of model parameters $\theta$, trained via cross-validation to maximize a validation metric (mean F1-score). The optimization routine executes $n_{\mathrm{trials}}$ Optuna trials. For each trial \(j\), Optuna samples a hyperparameter configuration
+the pipeline automates the selection of model parameters $\theta$, trained via cross-validation to maximize a validation metric (mean F1-score). The optimization routine executes $n_{\mathrm{trials}}$. For each trial \(j\), Optuna samples a hyperparameter configuration
 $\theta^{(j)} \sim q(\theta \mid \mathcal{S}),$
-where $q$ is the TPE-induced density estimator. The objective function evaluates the mean F1-score across $K$ folds:
+where $q$ is the TPE-induced density estimator. The objective function evaluates the metrics across $K$ folds:
 $
 \mathcal{L}(\theta^{(j)}) = \frac{1}{K} \sum_{k=1}^K \mathrm{F1}_{\mathrm{val}}^{(k)}(\theta^{(j)}).
 $
 
-Each fold involves the creation of training/validation splits, construction of encoder/decoder/head modules according to $\theta^{(j)}$, application of He initialization 
-$
-W \sim \mathcal{N}\!\left(0, \frac{2}{\mathrm{fan\_in}}\right),
-$
-optional wrapping in a windowed model, and PyTorch Lightning training with early stopping and checkpointing.
+Each fold involves the creation of training/ validation splits, construction of encoder/ decoder/ head modules according to $\theta^{(j)}$, application of He initialization 
+%$W \sim \mathcal{N}\!\left(0, \frac{2}{\mathrm{fan\_in}}\right),$
+, optional wrapping in a windowed model, and PyTorch Lightning training with early stopping and checkpointing.
 
-The pipeline generates prediction matrices 
+The pipeline generate predictions 
 $
 P \in \mathbb{R}^{N_{\mathrm{test}} \times C},
 $
-applies aggregation rules, converts class indices to textual labels, and writes the final CSV. Additional utilities include validation of parameter configurations, ensemble model support, feature-selection wrappers, and automatic He initialization.
+applies aggregation rules, converts class indices to textual labels, and writes the final CSV. 
 
-\subsubsection*{Architectures}
+%Additional utilities include validation of parameter configurations, ensemble model support, feature-selection wrappers, and automatic He initialization.
+
+\textbf{3.3 Architectures}
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{Deliverables/Report1/img/Architectures.png}
     \label{fig:Architectures}
 \end{figure}
 
-Supported architectures include RNN encoders (multi-layer LSTM/GRU with optional bidirectionality), Conv1D encoders (temporal convolutions with pooling), MultiScaleCNN (parallel convolutional branches at multiple receptive fields), autoencoder decoders (symmetric to encoders), and feedforward classification heads.
+% may be removed if too long
+Supported architectures include RNN encoders (multi-layer LSTM/GRU with optional bidirectionality), Conv1D encoders (temporal convolutions with pooling), MultiScaleCNN (parallel convolutional branches at multiple receptive fields), and feedforward classification heads. Additionally if enabled we build a symmetric decoder.
