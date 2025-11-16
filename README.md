@@ -7,6 +7,10 @@
 
 This project provides a modular, scalable pipeline for deep learning workflows, featuring automated hyperparameter optimization, multimodal data processing, and flexible architecture design using PyTorch Lightning.
 
+## 📄 Report
+
+[📖 View Full Report (PDF)](Deliverables/Report1/ANN_Challenges.pdf)
+
 ---
 
 ## 🚀 Quick Start
