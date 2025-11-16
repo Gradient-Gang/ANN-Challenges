@@ -40,7 +40,8 @@ feature_selection_params:
   selected_features_file: "selected_features.txt"  # Where to save the selected feature list
 
 # Oversampling (to handle class imbalance)
-use_oversampling: true
+# Disabled to maintain consistency between time series and global features
+use_oversampling: false
 oversampling_method: "SMOTE"  # Options: 'SMOTE', 'RandomOverSampler'
 oversampling_random_state: 42
 

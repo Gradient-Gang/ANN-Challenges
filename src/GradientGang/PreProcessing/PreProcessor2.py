@@ -464,30 +464,27 @@ class PreProcessor:
         # Initialize FeatureSelector
         selector = FeatureSelector(fs_params)
 
-        # Separate isPirate and sample_index from features (must be preserved)
-        # isPirate is a critical feature that should not be subject to feature selection
-        train_X = train_global_features.drop(columns=["sample_index", "isPirate"])
-        test_X = test_global_features.drop(columns=["sample_index", "isPirate"])
+        # Separate sample_index from features (must be preserved)
+        train_X = train_global_features.drop(columns=["sample_index"])
+        test_X = test_global_features.drop(columns=["sample_index"])
 
         # Fit on training data and transform both
         train_X_selected = selector.fit_transform(train_X, train_labels)
         test_X_selected = selector.transform(test_X)
 
-        # Reconstruct with sample_index and isPirate preserved
+        # Reconstruct with sample_index preserved
         train_selected = pd.concat(
             [
                 train_global_features[["sample_index"]].reset_index(drop=True),
-                train_global_features[["isPirate"]].reset_index(drop=True),
                 train_X_selected.reset_index(drop=True),
             ],
             axis=1,
         )
 
-        # Reconstruct test data with sample_index, isPirate, and selected features
+        # Reconstruct test data with sample_index and selected features
         test_selected = pd.concat(
             [
                 test_global_features[["sample_index"]].reset_index(drop=True),
-                test_global_features[["isPirate"]].reset_index(drop=True),
                 test_X_selected.reset_index(drop=True),
             ],
             axis=1,
@@ -591,11 +588,11 @@ class PreProcessor:
             return
         print("Data loaded successfully.")
 
-        # Remove pain survey features
-        pain_survey_cols = ['pain_survey_1', 'pain_survey_2', 'pain_survey_3', 'pain_survey_4']
-        train_data = train_data.drop(columns=[col for col in pain_survey_cols if col in train_data.columns], errors='ignore')
-        test_data = test_data.drop(columns=[col for col in pain_survey_cols if col in test_data.columns], errors='ignore')
-        print(f"Removed pain survey features: {pain_survey_cols}")
+        # Remove pain survey features and isPirate-related columns
+        cols_to_remove = ['pain_survey_1', 'pain_survey_2', 'pain_survey_3', 'pain_survey_4', 'n_legs', 'n_hands', 'n_eyes']
+        train_data = train_data.drop(columns=[col for col in cols_to_remove if col in train_data.columns], errors='ignore')
+        test_data = test_data.drop(columns=[col for col in cols_to_remove if col in test_data.columns], errors='ignore')
+        print(f"Removed pain survey and isPirate features: {cols_to_remove}")
 
         # Remove last column
         try:
@@ -606,14 +603,8 @@ class PreProcessor:
             return
         print("Last column removed successfully.")
 
-        # Handle isPirate features
-        try:
-            train_data = self.handle_is_pirate_features(train_data)
-            test_data = self.handle_is_pirate_features(test_data)
-        except Exception as e:
-            print(f"Error handling inspirate features: {e}")
-            return
-        print("Inspirate features handled successfully.")
+        # isPirate features already removed - skip handling
+        print("isPirate features already removed.")
 
         # Plot one time series if verbose
         if self.verbose:
@@ -691,23 +682,13 @@ class PreProcessor:
             train_pod_features = None
             test_pod_features = None
 
-        # Merge all global features (isPirate + statistical/trend + POD)
-        # Extract isPirate as global feature
-        train_is_pirate = (
-            train_data.copy()
-            .groupby("sample_index")
-            .first()[["isPirate"]]
-            .reset_index()
-        )
-        train_data.drop(columns=["isPirate"], inplace=True, errors="ignore")
-        test_is_pirate = (
-            test_data.copy().groupby("sample_index").first()[["isPirate"]].reset_index()
-        )
-        test_data.drop(columns=["isPirate"], inplace=True, errors="ignore")
-
-        # Start with isPirate
-        train_global_combined = train_is_pirate.copy()
-        test_global_combined = test_is_pirate.copy()
+        # Merge all global features (statistical/trend + POD)
+        # Create base DataFrames with just sample_index
+        unique_train_samples = train_data["sample_index"].unique()
+        unique_test_samples = test_data["sample_index"].unique()
+        
+        train_global_combined = pd.DataFrame({"sample_index": unique_train_samples})
+        test_global_combined = pd.DataFrame({"sample_index": unique_test_samples})
 
         # Merge statistical/trend global features if available
         if train_global_features is not None:
@@ -760,41 +741,16 @@ class PreProcessor:
         except Exception as e:
             print(f"Error saving global features: {e}")
 
-        # Apply oversampling if specified (before saving)
+        # Apply oversampling if specified (before saving time series data)
+        # Note: Global features are NOT oversampled to maintain consistency with feature selection
+        # Oversampling is applied only to time series data
         if self.use_oversampling:
             try:
+                print("\n⚠️  WARNING: Oversampling time series data only.")
+                print("   Global features will NOT be oversampled to maintain feature selection consistency.")
+                print("   The DataLoader will need to handle the mismatch in sample counts.\n")
+                
                 train_data, train_labels = self.apply_oversampling(train_data, train_labels)
-                
-                # Also oversample global features to match
-                # Extract isPirate and rebuild global features for new samples
-                train_is_pirate = (
-                    train_data.copy()
-                    .groupby("sample_index")
-                    .first()[["isPirate"]]
-                    .reset_index()
-                )
-                
-                train_global_combined_resampled = train_is_pirate.copy()
-                
-                # Re-extract global features for oversampled data
-                if extract_global:
-                    feature_types = self.params.get(
-                        "global_features_to_extract", ["statistical", "trend", "domain"]
-                    )
-                    train_global_features_resampled = self.extract_global_features(
-                        train_data, feature_types
-                    )
-                    train_global_combined_resampled = train_global_combined_resampled.merge(
-                        train_global_features_resampled, on="sample_index", how="left"
-                    )
-                    print(f"Global features re-extracted for oversampled data.")
-                
-                # Note: POD features cannot be simply re-extracted as they require fitting on original data
-                # Skip POD features for oversampled data or handle separately if needed
-                
-                # Save oversampled global features
-                self.save_data(train_global_combined_resampled, "train_global_features.csv")
-                print(f"Oversampled global features saved.")
                 
             except Exception as e:
                 print(f"Error applying oversampling: {e}")
