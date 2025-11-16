@@ -28,6 +28,66 @@ Main class for generating submission files from model predictions.
 
 ---
 
+---
+
+### `WindowedSubmissionGenerator`
+Enhanced submission generator that handles windowed model predictions. When models use WindowedModelWrapper, this generator aggregates window-level predictions to sample-level outputs for submission files.
+
+**Configuration Parameters:**
+- `model` (L.LightningModule): Trained windowed PyTorch Lightning model
+- `dataloader` (torch.utils.data.DataLoader): DataLoader containing test data
+- `label_mapping` (Dict[int, str] | None): Mapping from integer predictions to string labels
+- `aggregation_method` (Literal): How to aggregate windowed predictions
+  - `"avg_probs"`: Average softmax probabilities, then argmax (default)
+  - `"majority_vote"`: Most frequent predicted class
+  - `"max_confidence"`: Prediction with highest confidence
+- `num_original_samples` (int | None): Number of original samples before windowing (default: None = no windowing)
+
+**Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `__init__` | `model: L.LightningModule`<br>`dataloader: DataLoader`<br>`label_mapping: Dict[int, str]`<br>`aggregation_method: str`<br>`num_original_samples: int` | - | Initialize generator with windowed model and aggregation strategy. |
+| `generate_predictions` | - | `tuple[Tensor, Tensor]` | Generate predictions and probabilities for all samples. |
+| `aggregate_windowed_predictions` | `predictions: Tensor`<br>`probabilities: Tensor` | `Tensor` | Aggregate window predictions to sample-level using configured method. |
+| `create_submission_file` | `output_path: str`<br>`predictions: Tensor`<br>`probabilities: Tensor` | `pd.DataFrame` | Create and save submission CSV with aggregated predictions. |
+| `generate_submission` | `output_path: str` | `pd.DataFrame` | Complete workflow: predict, aggregate, and save submission. |
+
+**Aggregation Methods:**
+- **avg_probs**: Average softmax probabilities across windows, then argmax
+  - Best for calibrated probability estimates
+  - Smooth decision boundaries
+  - Recommended for most use cases
+- **majority_vote**: Most frequent class among window predictions
+  - Robust to outlier windows
+  - Discrete voting mechanism
+  - Good for imbalanced classes
+- **max_confidence**: Prediction from window with highest softmax confidence
+  - Trusts most confident prediction
+  - Can be sensitive to overfitting
+  - Use when model calibration is strong
+
+**Integration with FinalPipeline:**
+```python
+# FinalPipeline.create_submission() automatically uses WindowedSubmissionGenerator
+if self.use_windowing:
+    submission_df = WindowedSubmissionGenerator(
+        model=best_model,
+        dataloader=test_loader,
+        label_mapping={0: "no_pain", 1: "low_pain", 2: "high_pain"},
+        aggregation_method=self.aggregation_method,
+        num_original_samples=len(test_dataset)
+    ).generate_submission(output_path)
+else:
+    submission_df = SubmissionGenerator(
+        model=best_model,
+        dataloader=test_loader,
+        label_mapping={0: "no_pain", 1: "low_pain", 2: "high_pain"}
+    ).generate_submission(output_path)
+```
+
+---
+
 ## Convenience Functions
 
 ### `generate_submission`

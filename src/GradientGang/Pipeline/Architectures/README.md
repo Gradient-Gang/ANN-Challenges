@@ -151,3 +151,76 @@ Fully connected feedforward network with support for normalization and dropout.
 
 ---
 
+### `WindowedModelWrapper`
+Model-level windowing wrapper that applies sliding window segmentation internally during forward pass and aggregates window predictions for sample-level outputs. This ensures training/validation metrics match inference metrics, unlike data-level windowing which can create train/inference discrepancies.
+
+**Configuration Parameters:**
+- `base_model` (L.LightningModule): The base model to wrap (LightningAutoencoder or Direct)
+- `window_size` (int): Size of each sliding window (default: 80)
+- `stride` (int): Stride for sliding window (default: 40)
+- `aggregation_method` (Literal): How to aggregate window predictions
+  - `"avg_probs"`: Average softmax probabilities (recommended)
+  - `"avg_logits"`: Average logits before softmax
+  - `"majority_vote"`: Majority voting across windows
+  - `"max_confidence"`: Pick prediction with highest confidence
+- `window_loss_weight` (float): Weight for auxiliary window-level loss (0-1, default: 0.3)
+  - 0.0: Only sample-level loss
+  - 1.0: Only window-level loss
+  - 0.3: 30% window loss, 70% sample loss (recommended)
+
+**Key Features:**
+- Receives full sequences (no windowing in DataLoader)
+- Creates windows internally using efficient `torch.unfold`
+- Aggregates window predictions to sample-level predictions
+- Training/validation metrics match inference (no train/test gap)
+- Respects base model's loss computation (reconstruction + classification for autoencoders)
+- Supports both Direct and Autoencoder base models
+
+**Methods:**
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `__init__` | `base_model: L.LightningModule`<br>`window_size: int`<br>`stride: int`<br>`aggregation_method: str`<br>`window_loss_weight: float` | - | Initialize wrapper around base model. |
+| `create_windows` | `time_series: Tensor` | `tuple[Tensor, int]` | Create sliding windows from full sequences using torch.unfold. Returns (windows, num_windows). |
+| `forward` | `x: tuple` | `Tensor` | Forward pass with windowing. Returns sample_logits or (sample_logits, window_logits) during training. |
+| `aggregate_predictions` | `window_logits: Tensor` | `Tensor` | Aggregate window-level predictions to sample-level using configured method. |
+| `training_step` | `batch: tuple`<br>`batch_idx: int` | `Tensor` | Training step respecting base model's loss (reconstruction + classification for AE). |
+| `validation_step` | `batch: tuple`<br>`batch_idx: int` | `float` | Validation step computing sample-level F1 and base model losses. |
+| `predict_step` | `batch: tuple`<br>`batch_idx: int` | `tuple` | Prediction step returning sample-level predictions and probabilities. |
+| `configure_optimizers` | - | `dict` | Configure AdamW optimizer using base model's learning rate. |
+
+**Windowing Process:**
+1. **Input**: Full sequences (batch, 34 features, 160 timesteps)
+2. **Window Creation**: Sliding windows with torch.unfold
+   - Fast path: Exact divisibility uses unfold directly
+   - Slow path: Padding for non-divisible sequences
+3. **Window Processing**: Each window processed by base model
+4. **Aggregation**: Window predictions combined to sample-level
+5. **Loss Computation**: 
+   - Autoencoder: Reconstruction loss + classification loss (respects base model weighting)
+   - Direct: Classification loss only
+   - Window-level auxiliary loss (optional)
+
+**Integration with FinalPipeline:**
+```python
+# FinalPipeline automatically wraps models when use_windowing=True
+if use_windowing:
+    model = WindowedModelWrapper(
+        base_model=model,
+        window_size=trial.suggest_int("window_size", 5, 40),
+        stride=int(window_size * trial.suggest_categorical("stride_ratio", [0.25, 0.5, 0.75, 1.0])),
+        aggregation_method=trial.suggest_categorical("aggregation_method", 
+            ["avg_probs", "avg_logits", "majority_vote", "max_confidence"]),
+        window_loss_weight=trial.suggest_float("window_loss_weight", 0.0, 0.5)
+    )
+```
+
+**Advantages over Data-Level Windowing:**
+- **Metric Consistency**: Training F1 = Validation F1 = Test F1
+- **No Data Leakage**: Windows created per-sample, not across samples
+- **Flexible Aggregation**: Multiple methods for combining window predictions
+- **Base Model Preservation**: Respects base model's loss computation logic
+- **Memory Efficient**: Windows created on-the-fly during forward pass
+
+---
+

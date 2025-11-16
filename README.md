@@ -29,47 +29,56 @@ ANN-Challenges/
 ├── src/
 │   └── GradientGang/
 │       ├── Pipeline/
-│       │   ├── Pipeline.py                    # Main orchestration class
+│       │   ├── Pipeline.py                         # FinalPipeline orchestration class
 │       │   ├── Architectures/
-│       │   │   ├── LightningAutoencoder.py   # Autoencoder with reconstruction
-│       │   │   ├── Direct.py                  # Direct classification model
-│       │   │   ├── Encoder.py                 # Modular encoder blocks
-│       │   │   ├── Decoder.py                 # Modular decoder blocks
-│       │   │   └── FeedForward.py            # Feedforward networks
+│       │   │   ├── LightningAutoencoder.py        # Autoencoder with reconstruction
+│       │   │   ├── Direct.py                       # Direct classification model
+│       │   │   ├── WindowedModelWrapper.py        # Model-level windowing wrapper
+│       │   │   ├── Encoder.py                      # Modular encoder blocks
+│       │   │   ├── Decoder.py                      # Modular decoder blocks
+│       │   │   └── FeedForward.py                 # Feedforward networks
 │       │   ├── DataLoader/
-│       │   │   └── DataLoader.py             # Multimodal data loading
+│       │   │   └── DataLoader.py                  # Multimodal data loading + K-fold CV
 │       │   ├── Optimizer/
-│       │   │   ├── Optimizer.py              # Base optimizer interface
-│       │   │   └── OptunaOptimizer.py        # Optuna-based optimization
+│       │   │   ├── Optimizer.py                   # Base optimizer interface
+│       │   │   └── OptunaOptimizer.py             # Optuna TPE optimization
 │       │   ├── SubmissionGenerator/
-│       │   │   └── SubmissionGenerator.py    # CSV submission generation
+│       │   │   ├── SubmissionGenerator.py         # Standard CSV submission
+│       │   │   └── WindowedSubmissionGenerator.py # Windowed prediction aggregation
 │       │   └── Utils/
-│       │       └── ParameterInterpreter.py   # Parameter validation
+│       │       ├── ParameterInterpreter.py        # Parameter validation
+│       │       ├── FeatureSelector.py             # Supervised feature selection
+│       │       └── EnsembleModels.py              # Model ensemble utilities
 │       └── PreProcessing/
-│           ├── PreProcessor.py               # Data preprocessing pipeline
+│           ├── PreProcessor.py                    # Data preprocessing pipeline
 │           └── DataExploration/
 │               ├── DataCleaning.ipynb
 │               ├── DataVisualization.ipynb
 │               └── RandomAnalysis.ipynb
 ├── dataset/
-│   ├── Pirate/                               # Original datasets
-│   └── PirateProcessed/                      # Preprocessed datasets
+│   ├── Pirate/                                    # Original datasets
+│   └── PirateProcessed/                           # Preprocessed datasets
+│       ├── pirate_pain_train.csv                  # Processed time series
+│       ├── pirate_pain_test.csv
+│       ├── pirate_pain_train_labels.csv           # Training labels
+│       ├── train_global_features.csv              # Global features
+│       ├── test_global_features.csv
+│       ├── class_weights.yaml                     # Computed class weights
+│       └── selected_features.txt                  # Selected feature names
 ├── Notebook/
-│   ├── Architectures.ipynb                   # Architecture experiments
-│   ├── DataLoading.ipynb                     # Data loading examples
-│   ├── preprocessing.ipynb                   # Preprocessing workflows
-│   └── Params/
-│       └── preprocessing_params.yaml         # Preprocessing configuration
-├── tests/                                    # Comprehensive test suite
+│   ├── FinalPipelineTest.ipynb                    # Pipeline testing
+│   └──  preprocessing.ipynb                        # Preprocessing workflows
+├── tests/                                         # Comprehensive test suite (293 tests)
 ├── Deliverables/
-│   ├── Report1/                              # LaTeX project report
+│   ├── Report1/                                   # LaTeX project report
 │   ├── Tracker/
-│   │   └── ideas_tracker.md                  # Project ideas and notes
+│   │   └── ideas_tracker.md                       # Project ideas and notes
 │   └── UML/
-│       ├── architecture.puml                 # PlantUML architecture diagram
-│       ├── UML.drawio                        # DrawIO diagram
-│       └── UML_drawio.png                    # Architecture visualization
-└── pyproject.toml                            # Project dependencies & metadata
+│       ├── architecture.puml                      # PlantUML architecture diagram
+│       ├── UML.drawio                             # DrawIO diagram
+│       └── UML_drawio.png                         # Architecture visualization
+├── Submissions/                                   # Generated submission files
+└── pyproject.toml                                 # Project dependencies & metadata
 ```
 
 ---
@@ -91,7 +100,7 @@ Central orchestration component managing the complete machine learning workflow.
 📖 [Pipeline Documentation](src/GradientGang/Pipeline/README.md)
 
 #### Architecture Module
-Flexible building blocks for neural network construction including Encoders (Conv1D/2D, LSTM, GRU, RNN), Decoders (transpose convolutions, recurrent layers), FeedForward networks, LightningAutoencoder (joint/split latent spaces), and Direct classification models.
+Flexible building blocks for neural network construction including Encoders (Conv1D/2D, LSTM, GRU, RNN, MultiScaleCNN), Decoders (transpose convolutions, recurrent layers), FeedForward networks, LightningAutoencoder (joint/split latent spaces), Direct classification models, and **WindowedModelWrapper** for model-level windowing with aggregation strategies.
 
 📖 [Architectures Documentation](src/GradientGang/Pipeline/Architectures/README.md)
 
@@ -106,7 +115,7 @@ Automated hyperparameter tuning using Optuna with TPE sampler for efficient Baye
 📖 [Optimizer Documentation](src/GradientGang/Pipeline/Optimizer/README.md)
 
 #### Submission Module
-Automated CSV generation for competition submissions. Maps model predictions to labels, handles batch processing, and creates properly formatted submission files for Kaggle-style competitions.
+Automated CSV generation for competition submissions. Maps model predictions to labels, handles batch processing, windowed prediction aggregation (avg_probs/majority_vote/max_confidence), and creates properly formatted submission files for Kaggle-style competitions.
 
 📖 [SubmissionGenerator Documentation](src/GradientGang/Pipeline/SubmissionGenerator/README.md)
 
@@ -135,6 +144,43 @@ poetry shell
 
 # Or install with pip
 pip install -e .
+```
+
+### Running Experiments
+
+```python
+from GradientGang.Pipeline.Pipeline import FinalPipeline
+
+# Configure pipeline
+params = {
+    "project_name": "PiratePain",
+    "study_name": "experiment_v1",
+    "database_url": "postgresql://user:pass@localhost:5432/optuna",
+    "data_params": {
+        "train_path": "dataset/PirateProcessed/pirate_pain_train.csv",
+        "test_path": "dataset/PirateProcessed/pirate_pain_test.csv",
+        "train_labels_path": "dataset/PirateProcessed/pirate_pain_train_labels.csv",
+        "train_global_path": "dataset/PirateProcessed/train_global_features.csv",
+        "test_global_path": "dataset/PirateProcessed/test_global_features.csv",
+        "class_weights_path": "dataset/PirateProcessed/class_weights.yaml",
+        "n_folds": 5,
+        "batch_size": 32,
+        "num_workers": 4
+    },
+    "submission_path": "./submissions"
+}
+
+# Create pipeline
+pipeline = FinalPipeline(params)
+
+# Run optimization
+pipeline.optuna_optimize(n_trials=100)
+
+# View results
+pipeline.study_summary()
+
+# Generate submission
+submission_df = pipeline.create_submission()
 ```
 
 ---

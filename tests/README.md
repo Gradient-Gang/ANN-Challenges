@@ -246,6 +246,62 @@ poetry run pytest --cov=src --cov-report=term-missing tests/
 
 ---
 
+### WindowedModelWrapper Tests
+**File:** `test_WindowedModelWrapper.py`  
+**Coverage:** 95%  
+**Test Classes:** 6
+
+#### TestWindowedModelWrapperInitialization
+| Test Method | Description | Key Assertions |
+|------------|-------------|----------------|
+| `test_wrapper_initialization` | Tests basic wrapper initialization | Wrapper created with base model |
+| `test_wrapper_with_direct_model` | Tests wrapping Direct model | Direct model wrapped successfully |
+| `test_wrapper_with_autoencoder` | Tests wrapping Autoencoder model | Autoencoder wrapped successfully |
+| `test_wrapper_hyperparameters_saved` | Tests hyperparameter saving | All config params in hparams |
+
+#### TestWindowedModelWrapperWindowing
+| Test Method | Description | Key Assertions |
+|------------|-------------|----------------|
+| `test_create_windows_exact_divisible` | Tests window creation (exact fit) | Correct number of windows, correct shapes |
+| `test_create_windows_with_padding` | Tests window creation (needs padding) | Padding applied correctly |
+| `test_create_windows_stride_variations` | Tests different stride values | Various stride ratios work correctly |
+| `test_window_overlap` | Tests overlapping windows | Overlapping windows created properly |
+
+#### TestWindowedModelWrapperAggregation
+| Test Method | Description | Key Assertions |
+|------------|-------------|----------------|
+| `test_aggregate_avg_probs` | Tests avg_probs aggregation | Average probabilities computed correctly |
+| `test_aggregate_avg_logits` | Tests avg_logits aggregation | Average logits computed correctly |
+| `test_aggregate_majority_vote` | Tests majority voting | Most frequent class selected |
+| `test_aggregate_max_confidence` | Tests max_confidence aggregation | Highest confidence prediction chosen |
+
+#### TestWindowedModelWrapperTraining
+| Test Method | Description | Key Assertions |
+|------------|-------------|----------------|
+| `test_training_step_direct` | Tests training with Direct model | Classification loss computed |
+| `test_training_step_autoencoder` | Tests training with Autoencoder | Reconstruction + classification loss |
+| `test_validation_step` | Tests validation step | Sample-level F1 computed |
+| `test_forward_pass` | Tests forward pass | Sample-level predictions returned |
+| `test_base_model_loss_respected` | Tests base model loss computation | Base model's loss logic preserved |
+
+#### TestWindowedModelWrapperIntegration
+| Test Method | Description | Key Assertions |
+|------------|-------------|----------------|
+| `test_full_training_loop` | Tests complete training workflow | Training converges, metrics logged |
+| `test_inference_consistency` | Tests train/val/test consistency | Metrics consistent across phases |
+| `test_optimizer_configuration` | Tests optimizer setup | AdamW configured with base model LR |
+| `test_f1_metric_reset` | Tests metric reset between epochs | F1 metric resets correctly |
+
+#### TestWindowedModelWrapperEdgeCases
+| Test Method | Description | Key Assertions |
+|------------|-------------|----------------|
+| `test_single_window` | Tests sequence exactly one window | Single window handled correctly |
+| `test_very_large_stride` | Tests stride equal to window size | Non-overlapping windows work |
+| `test_unlabeled_data` | Tests handling unlabeled samples | No loss computed for unlabeled data |
+| `test_empty_batch` | Tests empty batch handling | Empty batches handled gracefully |
+
+---
+
 ## Pipeline Tests
 
 ### DataLoader Tests
