@@ -1,6 +1,6 @@
 # PreProcessing Module
 
-![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
+![Architecture Diagram](../../../Deliverables/UML/PIPELINE.png)
 
 ## Description
 The PreProcessing module provides a comprehensive data preprocessing pipeline for the pirate pain multivariate time series dataset. It handles data loading, feature engineering (categorical mapping, global feature extraction), Z-score normalization, dimensionality reduction (PCA/POD, supervised feature selection), class weight computation, and visualization. The module transforms raw time series data into processed time series and global features suitable for neural network training. All operations are configured via YAML files for reproducible preprocessing workflows.

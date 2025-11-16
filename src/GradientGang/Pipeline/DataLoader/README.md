@@ -1,6 +1,6 @@
 # DataLoader Module
 
-![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+![Architecture Diagram](../../../../Deliverables/UML/PIPELINE.png)
 
 ## Description
 The DataLoader module provides a PyTorch Lightning DataModule for loading multimodal datasets combining time series (34 features × 160 timesteps) and global features from CSV files. It implements **K-fold stratified cross-validation** for robust model training and evaluation in FinalPipeline. The module handles label mapping, automatic data splits, and efficient data loading with parallel workers and GPU memory pinning. It supports windowing at the data level (though FinalPipeline uses model-level windowing), optional test data inclusion for autoencoder unsupervised learning, and seamless integration with PyTorch Lightning training workflows.

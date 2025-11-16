@@ -1,6 +1,6 @@
 # Optimizer Module
 
-![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+![Architecture Diagram](../../../../Deliverables/UML/PIPELINE.png)
 
 ## Description
 The Optimizer module provides hyperparameter optimization capabilities integrated into **FinalPipeline**. The optimization framework uses Optuna with TPE (Tree-structured Parzen Estimator) sampling and MedianPruner for efficient hyperparameter search. It implements K-fold stratified cross-validation, returning mean validation F1-score across folds for robust model selection. The module integrates with PyTorch Lightning for training, PostgreSQL for persistent storage, and TensorBoard for logging. The optimization is fully automated within the `FinalPipeline.optuna_optimize()` and `FinalPipeline.objective_kfold()` methods.

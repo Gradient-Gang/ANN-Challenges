@@ -1,6 +1,6 @@
 # Utils Module
 
-![Architecture Diagram](../../../../Deliverables/UML/UML_drawio.png)
+![Architecture Diagram](../../../../Deliverables/UML/PIPELINE.png)
 
 ## Description
 The Utils module provides essential utility classes for parameter validation, feature selection, model ensembling, and configuration management across the Pipeline. It includes `ParameterInterpreter` for robust parameter validation with type checking, `FeatureSelector` for supervised feature selection in preprocessing, and `EnsembleModels` for combining multiple trained models. This module is fundamental to ensuring configuration correctness, optimizing feature spaces, and enabling advanced model combination strategies throughout the codebase.
