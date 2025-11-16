@@ -35,6 +35,7 @@ dependencies = [
     "optuna-dashboard (>=0.20.0,<0.21.0)",
     "nbformat (>=4.2.0)",
     "matplotlib-venn (>=1.1.2,<2.0.0)",
+    "imbalanced-learn (>=0.14.0,<0.15.0)",
 ]
 
 [tool.poetry]
