@@ -1173,7 +1173,9 @@ class FinalPipeline:
 
         # ==================== STEP 2.5: Configure Data Augmentation ====================
         # Data augmentation helps improve generalization by creating variations of training data
-        use_augmentation = True
+        # WARNING: Augmentation significantly slows training (3 ops per sample)
+        # Disable for faster iteration, enable for final optimization
+        use_augmentation = True  # FIXED VALUE - Set to True only when needed
         
         augmentation_config = None
         if use_augmentation:

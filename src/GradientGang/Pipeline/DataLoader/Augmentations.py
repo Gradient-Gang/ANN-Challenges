@@ -161,10 +161,14 @@ class TimeWarpingAugmentation(BaseAugmentation):
         """
         super().__init__(seed)
         self.strength = strength
+        self._indices_cache = {}
+        self._generator_cache = {}
     
     def apply(self, data: torch.Tensor, sample_idx: int) -> torch.Tensor:
         """
         Apply time warping to time series using linear interpolation.
+        
+        OPTIMIZED: Uses cached generators and index tensors.
         
         Args:
             data (torch.Tensor): Shape (channels, time_steps)
@@ -173,35 +177,52 @@ class TimeWarpingAugmentation(BaseAugmentation):
         Returns:
             torch.Tensor: Time-warped time series
         """
-        generator = self._get_generator(sample_idx)
+        # OPTIMIZATION: Cache generator per device
+        device = data.device
+        if device not in self._generator_cache:
+            gen = torch.Generator(device=device)
+            gen.manual_seed(self.seed + sample_idx)
+            self._generator_cache[device] = gen
+        else:
+            self._generator_cache[device].manual_seed(self.seed + sample_idx)
         
         channels, time_steps = data.shape
         
+        # OPTIMIZATION: Cache original indices tensor to avoid recreating it
+        cache_key = (device, time_steps)
+        if cache_key not in self._indices_cache:
+            self._indices_cache[cache_key] = torch.arange(time_steps, dtype=torch.float32, device=device)
+        original_indices = self._indices_cache[cache_key]
+        
         # Generate smooth random warp using cumulative sum (pure PyTorch)
-        warp = torch.randn(time_steps, dtype=data.dtype, device=data.device, generator=generator) * self.strength
+        warp = torch.randn(time_steps, dtype=data.dtype, device=device, generator=self._generator_cache[device]) * self.strength
         warp = torch.cumsum(warp, dim=0)
-        warp = warp - warp.mean()  # Center around 0
-        warp = warp / (warp.std() + 1e-8) * self.strength  # Normalize
+        warp.sub_(warp.mean())  # In-place: Center around 0
+        warp.div_(warp.std() + 1e-8).mul_(self.strength)  # In-place: Normalize
         
         # Create warped sampling positions
-        original_indices = torch.arange(time_steps, dtype=torch.float32, device=data.device)
         sample_positions = original_indices + warp * time_steps
         
-        # Clip to valid range
-        sample_positions = torch.clamp(sample_positions, 0, time_steps - 1)
+        # Clip to valid range (in-place for speed)
+        sample_positions.clamp_(0, time_steps - 1)
         
-        # Linear interpolation for each channel (fast, vectorized)
+        # Linear interpolation for ALL channels at once (fully vectorized, NO loops!)
         # Get integer and fractional parts
         indices_floor = sample_positions.long()
         indices_ceil = torch.clamp(indices_floor + 1, max=time_steps - 1)
         weights = sample_positions - indices_floor.float()
         
-        # Interpolate: lerp between floor and ceil values
-        warped_data = torch.zeros_like(data)
-        for c in range(channels):
-            values_floor = data[c, indices_floor]
-            values_ceil = data[c, indices_ceil]
-            warped_data[c] = values_floor * (1 - weights) + values_ceil * weights
+        # Vectorized interpolation: process all channels simultaneously
+        # Shape: data is (channels, time_steps), indices are (time_steps,)
+        # Use advanced indexing to gather values for all channels at once
+        values_floor = data[:, indices_floor]  # (channels, time_steps)
+        values_ceil = data[:, indices_ceil]    # (channels, time_steps)
+        
+        # Broadcasting: weights is (time_steps,) -> (1, time_steps) for broadcasting
+        weights = weights.unsqueeze(0)  # (1, time_steps)
+        
+        # Interpolate all channels in one operation (pure PyTorch, GPU-accelerated)
+        warped_data = values_floor * (1 - weights) + values_ceil * weights
         
         return warped_data
 

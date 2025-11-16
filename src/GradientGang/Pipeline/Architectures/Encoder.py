@@ -82,8 +82,9 @@ class MultiScaleCNNBlock(nn.Module):
         # Concatenate along channel dimension
         out = torch.cat(branch_outputs, dim=1)
 
-        # Apply pooling if specified
-        if self.pool is not None:
+        # Apply pooling if specified AND sequence is long enough
+        # Only pool if seq_len > 4 to avoid collapsing to 0
+        if self.pool is not None and out.shape[2] > 4:
             out = self.pool(out)
 
         return out
