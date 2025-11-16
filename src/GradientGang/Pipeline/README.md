@@ -77,67 +77,103 @@ Production-ready orchestration class managing the complete machine learning work
 ![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
 
 ```
-┌───────────────────────────────────────────────────────────────────────┐
-│                          FinalPipeline                                │
-│                                                                       │
-│  ┌────────────────┐      ┌──────────────────┐      ┌──────────────┐  │
-│  │  PostgreSQL    │◀────▶│  Optuna Study    │◀────▶│ TPE Sampler  │  │
-│  │  Storage       │      │  - TPESampler    │      │ + Pruner     │  │
-│  │  - Persistent  │      │  - MedianPruner  │      └──────────────┘  │
-│  │  - Resumable   │      │  - Seed: 42      │                         │
-│  └────────────────┘      └──────────────────┘                         │
-│         │                         │                                    │
-│         │                         ▼                                    │
-│         │              ┌─────────────────────┐                         │
-│         │              │  objective_kfold    │                         │
-│         │              │  - Suggest params   │                         │
-│         │              │  - K-fold CV        │                         │
-│         │              └─────────────────────┘                         │
-│         │                         │                                    │
-│         │                         ▼                                    │
-│         │         ┌───────────────────────────────┐                    │
-│         │         │   Architecture Builder        │                    │
-│         │         │   - setUpEncoder()            │                    │
-│         │         │   - setUpDecoder()            │                    │
-│         │         │   - setUpFeedForwardHead()    │                    │
-│         │         │   - apply_he_initialization() │                    │
-│         │         └───────────────────────────────┘                    │
-│         │                         │                                    │
-│         │                         ▼                                    │
-│         │         ┌───────────────────────────────┐                    │
-│         │         │  K-Fold Training Loop         │                    │
-│         │         │  For fold k=1 to K:           │                    │
-│         │         │    - DataModule.setup_fold(k) │                    │
-│         │         │    - Create model instance    │                    │
-│         │         │    - WindowedModelWrapper     │                    │
-│         │         │    - PyTorch Lightning Train  │                    │
-│         │         │    - EarlyStopping + Checkpt  │                    │
-│         │         │    - TensorBoard logging      │                    │
-│         │         └───────────────────────────────┘                    │
-│         │                         │                                    │
-│         │                         ▼                                    │
-│         │         ┌───────────────────────────────┐                    │
-│         │         │  Return mean(F1_scores)       │                    │
-│         │         │  Store fold scores & std      │                    │
-│         └────────▶│  Save checkpoints to disk     │                    │
-│                   └───────────────────────────────┘                    │
-│                                  │                                     │
-│                                  ▼                                     │
-│                   ┌───────────────────────────────┐                    │
-│                   │  load_best_model()            │                    │
-│                   │  - Load from checkpoint       │                    │
-│                   │  - Reconstruct architecture   │                    │
-│                   │  - Apply windowing wrapper    │                    │
-│                   └───────────────────────────────┘                    │
-│                                  │                                     │
-│                                  ▼                                     │
-│                   ┌───────────────────────────────┐                    │
-│                   │  create_submission()          │                    │
-│                   │  - WindowedSubmissionGen      │                    │
-│                   │  - Aggregate predictions      │                    │
-│                   │  - Save CSV                   │                    │
-│                   └───────────────────────────────┘                    │
-└───────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            FinalPipeline                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [1] Initialization                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ PostgreSQL Database ◄─► Optuna Study (TPE Sampler + MedianPruner)   │    │
+│  │   • Persistent storage    • Seed: 42                                │    │
+│  │   • Resumable trials      • Maximize mean F1-score                  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    ▼                                        │
+│  [2] Hyperparameter Optimization Loop (n_trials)                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      objective_kfold(trial)                         │    │
+│  │                                                                     │    │
+│  │  ┌───────────────────────────────────────────────────────────┐      │    │
+│  │  │ Suggest Hyperparameters:                                  │      │    │
+│  │  │  • Macro Architecture: Direct / Autoencoder               │      │    │
+│  │  │  • Encoder Type: Recurrent / Conv1d / MultiScaleCNN       │      │    │
+│  │  │  • Learning Rate, Regularization, Dropout                 │      │    │
+│  │  │  • Windowing: use_windowing, window_size, stride_ratio    │      │    │
+│  │  │  • Aggregation: avg_probs / majority_vote / max_conf      │      │    │
+│  │  │  • Scheduler: ReduceLROnPlateau / CosineAnnealing         │      │    │
+│  │  └───────────────────────────────────────────────────────────┘      │    │
+│  │                            │                                        │    │
+│  │                            ▼                                        │    │
+│  │  ┌───────────────────────────────────────────────────────────┐      │    │
+│  │  │ Build Architecture:                                       │      │    │
+│  │  │  1. setUpEncoder() → Encoder params (time series)         │      │    │
+│  │  │  2. setUpEncoder() → GlobalFF params (global features)    │      │    │
+│  │  │  3. setUpDecoder() → Decoder params (if Autoencoder)      │      │    │
+│  │  │  4. setUpFeedForwardHead() → Classification head          │      │    │
+│  │  │  5. Create base model (Direct / LightningAutoencoder)     │      │    │
+│  │  │  6. apply_he_initialization() → Weight init by activation │      │    │
+│  │  │  7. WindowedModelWrapper (if use_windowing=True)          │      │    │
+│  │  └───────────────────────────────────────────────────────────┘      │    │
+│  │                            │                                        │    │
+│  │                            ▼                                        │    │
+│  │  ┌───────────────────────────────────────────────────────────┐      │    │
+│  │  │ K-Fold Cross-Validation Loop (k = 1 to n_folds):          │      │    │
+│  │  │                                                           │      │    │
+│  │  │  For each fold:                                           │      │    │
+│  │  │    ├─ DataModule.setup_fold(k)                            │      │    │
+│  │  │    │    • Stratified train/val split                      │      │    │
+│  │  │    │    • Include test in train (if Autoencoder)          │      │    │
+│  │  │    │                                                      │      │    │
+│  │  │    ├─ Create fresh model instance                         │      │    │
+│  │  │    │    • Same architecture, new weights                  │      │    │
+│  │  │    │                                                      │      │    │
+│  │  │    ├─ Lightning Trainer:                                  │      │    │
+│  │  │    │    • EarlyStopping (monitors val_prediction_loss)    │      │    │
+│  │  │    │    • ModelCheckpoint (saves best per fold)           │      │    │
+│  │  │    │    • TensorBoard logger                              │      │    │
+│  │  │    │    • Max epochs, gradient clipping                   │      │    │
+│  │  │    │                                                      │      │    │
+│  │  │    └─ Record best_val_F1 for this fold                    │      │    │
+│  │  │                                                           │      │    │
+│  │  │  Aggregate: mean_F1 = mean([F1_fold1, ..., F1_foldK])     │      │    │
+│  │  │            std_F1 = std([F1_fold1, ..., F1_foldK])        │      │    │
+│  │  └───────────────────────────────────────────────────────────┘      │    │
+│  │                            │                                        │    │
+│  │                            ▼                                        │    │
+│  │  Return mean_F1 to Optuna  (MedianPruner may stop early)            │    │
+│  │  Store trial.user_attrs: fold_scores, mean_f1, std_f1               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    │ (Repeat for n_trials)                  │
+│                                    ▼                                        │
+│  [3] Best Model Selection                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ study.best_trial → Retrieve best hyperparameters & checkpoint path  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    ▼                                        │
+│  [4] Load Best Model                                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ load_best_model():                                                  │    │
+│  │  1. Reconstruct architecture from best_trial params                 │    │
+│  │  2. Load checkpoint weights (best fold)                             │    │
+│  │  3. Wrap with WindowedModelWrapper (if used in training)            │    │
+│  │  4. Set to eval mode, move to device                                │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    ▼                                        │
+│  [5] Generate Submission                                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ create_submission():                                                │    │ 
+│  │  1. Test DataLoader (no windowing in data)                          │    │
+│  │  2. WindowedSubmissionGenerator (if windowing used):                │    │
+│  │     • Creates windows internally per sample                         │    │
+│  │     • Aggregates using same method as training                      │    │
+│  │  3. Map predictions: int → {no_pain, low_pain, high_pain}           │    │
+│  │  4. Save CSV with zero-padded indices (000, 001, 002, ...)          │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
