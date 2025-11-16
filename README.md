@@ -5,89 +5,67 @@
 [![Lightning](https://img.shields.io/badge/Lightning-2.5%2B-purple.svg)](https://lightning.ai/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-This repository contains a comprehensive implementation of artificial neural network models for the ANN Challenges course. The project provides a modular, scalable pipeline for deep learning workflows, featuring automated hyperparameter optimization, multimodal data processing, and flexible architecture design using PyTorch Lightning.
+This project provides a modular, scalable pipeline for deep learning workflows, featuring automated hyperparameter optimization, multimodal data processing, and flexible architecture design using PyTorch Lightning.
 
 ---
 
-## 🎯 Key Features
+## 🚀 Quick Start
 
-- **🔧 Modular Pipeline Architecture**: End-to-end machine learning workflow with configurable components
-- **🧠 Flexible Neural Network Architectures**: Autoencoders, direct classifiers, and custom modular building blocks
-- **📊 Multimodal Data Processing**: Simultaneous handling of time series and tabular data
-- **🔍 Automated Hyperparameter Optimization**: Optuna-based TPE optimization with early stopping
-- **⚡ Lightning Integration**: PyTorch Lightning for efficient training, distributed computing, and GPU support
-- **📝 Configuration-Driven Design**: YAML-based configuration for reproducible experiments
-- **🎨 Data Preprocessing Pipeline**: Feature engineering, normalization, PCA, and visualization tools
-- **📤 Competition Submission Generator**: Automated CSV generation for Kaggle-style competitions
+### Installation
 
----
+```bash
+# Clone the repository
+git clone https://github.com/Gradient-Gang/ANN-Challenges.git
+cd ANN-Challenges
 
-## 📂 Project Structure
-
+# Install dependencies and activate the environment
+poetry install
+poetry env activate
 ```
-ANN-Challenges/
-├── src/
-│   └── GradientGang/
-│       ├── Pipeline/
-│       │   ├── Pipeline.py                         # FinalPipeline orchestration class
-│       │   ├── Architectures/
-│       │   │   ├── LightningAutoencoder.py        # Autoencoder with reconstruction
-│       │   │   ├── Direct.py                       # Direct classification model
-│       │   │   ├── WindowedModelWrapper.py        # Model-level windowing wrapper
-│       │   │   ├── Encoder.py                      # Modular encoder blocks
-│       │   │   ├── Decoder.py                      # Modular decoder blocks
-│       │   │   └── FeedForward.py                 # Feedforward networks
-│       │   ├── DataLoader/
-│       │   │   └── DataLoader.py                  # Multimodal data loading + K-fold CV
-│       │   ├── Optimizer/
-│       │   │   ├── Optimizer.py                   # Base optimizer interface
-│       │   │   └── OptunaOptimizer.py             # Optuna TPE optimization
-│       │   ├── SubmissionGenerator/
-│       │   │   ├── SubmissionGenerator.py         # Standard CSV submission
-│       │   │   └── WindowedSubmissionGenerator.py # Windowed prediction aggregation
-│       │   └── Utils/
-│       │       ├── ParameterInterpreter.py        # Parameter validation
-│       │       ├── FeatureSelector.py             # Supervised feature selection
-│       │       └── EnsembleModels.py              # Model ensemble utilities
-│       └── PreProcessing/
-│           ├── PreProcessor.py                    # Data preprocessing pipeline
-│           └── DataExploration/
-│               ├── DataCleaning.ipynb
-│               ├── DataVisualization.ipynb
-│               └── RandomAnalysis.ipynb
-├── dataset/
-│   ├── Pirate/                                    # Original datasets
-│   └── PirateProcessed/                           # Preprocessed datasets
-│       ├── pirate_pain_train.csv                  # Processed time series
-│       ├── pirate_pain_test.csv
-│       ├── pirate_pain_train_labels.csv           # Training labels
-│       ├── train_global_features.csv              # Global features
-│       ├── test_global_features.csv
-│       ├── class_weights.yaml                     # Computed class weights
-│       └── selected_features.txt                  # Selected feature names
-├── Notebook/
-│   ├── FinalPipelineTest.ipynb                    # Pipeline testing
-│   └──  preprocessing.ipynb                        # Preprocessing workflows
-├── tests/                                         # Comprehensive test suite (293 tests)
-├── Deliverables/
-│   ├── Report1/                                   # LaTeX project report
-│   ├── Tracker/
-│   │   └── ideas_tracker.md                       # Project ideas and notes
-│   └── UML/
-│       ├── architecture.puml                      # PlantUML architecture diagram
-│       ├── UML.drawio                             # DrawIO diagram
-│       └── UML_drawio.png                         # Architecture visualization
-├── Submissions/                                   # Generated submission files
-└── pyproject.toml                                 # Project dependencies & metadata
+
+### Running Experiments
+
+```python
+from GradientGang.Pipeline.Pipeline import FinalPipeline
+
+# Configure pipeline
+params = {
+    "project_name": "PiratePain",
+    "study_name": "experiment_v1",
+    "database_url": "postgresql://user:pass@localhost:5432/optuna",
+    "data_params": {
+        "train_path": "dataset/PirateProcessed/pirate_pain_train.csv",
+        "test_path": "dataset/PirateProcessed/pirate_pain_test.csv",
+        "train_labels_path": "dataset/PirateProcessed/pirate_pain_train_labels.csv",
+        "train_global_path": "dataset/PirateProcessed/train_global_features.csv",
+        "test_global_path": "dataset/PirateProcessed/test_global_features.csv",
+        "class_weights_path": "dataset/PirateProcessed/class_weights.yaml",
+        "n_folds": 5,
+        "batch_size": 32,
+        "num_workers": 4
+    },
+    "submission_path": "./submissions"
+}
+
+# Create pipeline
+pipeline = FinalPipeline(params)
+
+# Run optimization
+pipeline.optuna_optimize(n_trials=100)
+
+# View results
+pipeline.study_summary()
+
+# Generate submission
+submission_df = pipeline.create_submission()
 ```
 
 ---
 
 ## 🏗️ Architecture Overview
 
-![Architecture Diagram](Deliverables/UML/UML_drawio.png)
+![Architecture Diagram](Deliverables/UML/PIPELINE.png)
 
-### FinalPipeline Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -226,73 +204,74 @@ Parameter validation and interpretation utilities. Ensures configuration correct
 
 📖 [Utils Documentation](src/GradientGang/Pipeline/Utils/README.md)
 
+## 📂 Project Structure
+
+```
+ANN-Challenges/
+├── src/
+│   └── GradientGang/
+│       ├── Pipeline/
+│       │   ├── Pipeline.py                         # FinalPipeline orchestration class
+│       │   ├── Architectures/
+│       │   │   ├── LightningAutoencoder.py        # Autoencoder with reconstruction
+│       │   │   ├── Direct.py                       # Direct classification model
+│       │   │   ├── WindowedModelWrapper.py        # Model-level windowing wrapper
+│       │   │   ├── Encoder.py                      # Modular encoder blocks
+│       │   │   ├── Decoder.py                      # Modular decoder blocks
+│       │   │   └── FeedForward.py                 # Feedforward networks
+│       │   ├── DataLoader/
+│       │   │   └── DataLoader.py                  # Multimodal data loading + K-fold CV
+│       │   ├── Optimizer/
+│       │   │   ├── Optimizer.py                   # Base optimizer interface
+│       │   │   └── OptunaOptimizer.py             # Optuna TPE optimization
+│       │   ├── SubmissionGenerator/
+│       │   │   ├── SubmissionGenerator.py         # Standard CSV submission
+│       │   │   └── WindowedSubmissionGenerator.py # Windowed prediction aggregation
+│       │   └── Utils/
+│       │       ├── ParameterInterpreter.py        # Parameter validation
+│       │       ├── FeatureSelector.py             # Supervised feature selection
+│       │       └── EnsembleModels.py              # Model ensemble utilities
+│       └── PreProcessing/
+│           ├── PreProcessor.py                    # Data preprocessing pipeline
+│           └── DataExploration/
+│               ├── DataCleaning.ipynb
+│               ├── DataVisualization.ipynb
+│               └── RandomAnalysis.ipynb
+├── dataset/
+│   ├── Pirate/                                    # Original datasets
+│   └── PirateProcessed/                           # Preprocessed datasets
+│       ├── pirate_pain_train.csv                  # Processed time series
+│       ├── pirate_pain_test.csv
+│       ├── pirate_pain_train_labels.csv           # Training labels
+│       ├── train_global_features.csv              # Global features
+│       ├── test_global_features.csv
+│       ├── class_weights.yaml                     # Computed class weights
+│       └── selected_features.txt                  # Selected feature names
+├── Notebook/
+│   ├── FinalPipelineTest.ipynb                    # Pipeline testing
+│   └──  preprocessing.ipynb                        # Preprocessing workflows
+├── tests/                                         # Comprehensive test suite (293 tests)
+├── Deliverables/
+│   ├── Report1/                                   # LaTeX project report
+│   ├── Tracker/
+│   │   └── ideas_tracker.md                       # Project ideas and notes
+│   └── UML/
+│       ├── architecture.puml                      # PlantUML architecture diagram
+│       ├── UML.drawio                             # DrawIO diagram
+│       └── UML_drawio.png                         # Architecture visualization
+├── Submissions/                                   # Generated submission files
+└── pyproject.toml                                 # Project dependencies & metadata
+```
 
 ---
 
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/Gradient-Gang/ANN-Challenges.git
-cd ANN-Challenges
-
-# Install dependencies using Poetry (recommended)
-poetry install
-
-# Activate virtual environment
-poetry shell
-
-# Or install with pip
-pip install -e .
-```
-
-### Running Experiments
-
-```python
-from GradientGang.Pipeline.Pipeline import FinalPipeline
-
-# Configure pipeline
-params = {
-    "project_name": "PiratePain",
-    "study_name": "experiment_v1",
-    "database_url": "postgresql://user:pass@localhost:5432/optuna",
-    "data_params": {
-        "train_path": "dataset/PirateProcessed/pirate_pain_train.csv",
-        "test_path": "dataset/PirateProcessed/pirate_pain_test.csv",
-        "train_labels_path": "dataset/PirateProcessed/pirate_pain_train_labels.csv",
-        "train_global_path": "dataset/PirateProcessed/train_global_features.csv",
-        "test_global_path": "dataset/PirateProcessed/test_global_features.csv",
-        "class_weights_path": "dataset/PirateProcessed/class_weights.yaml",
-        "n_folds": 5,
-        "batch_size": 32,
-        "num_workers": 4
-    },
-    "submission_path": "./submissions"
-}
-
-# Create pipeline
-pipeline = FinalPipeline(params)
-
-# Run optimization
-pipeline.optuna_optimize(n_trials=100)
-
-# View results
-pipeline.study_summary()
-
-# Generate submission
-submission_df = pipeline.create_submission()
-```
-
----
 
 ## 🧪 Testing
 
 [![Tests](https://img.shields.io/badge/Tests-293%20passed-brightgreen.svg)](tests/)
 [![Coverage](https://img.shields.io/badge/Coverage-90%25-brightgreen.svg)](tests/)
 
-The project includes a comprehensive test suite with **293 tests** achieving **90% code coverage**.
+The project includes a test suite with **293 tests** achieving **90% code coverage**.
 
 ### Run Tests
 

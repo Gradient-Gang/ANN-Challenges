@@ -74,7 +74,8 @@ Production-ready orchestration class managing the complete machine learning work
 
 ## FinalPipeline Architecture
 
-![Architecture Diagram](../../../Deliverables/UML/UML_drawio.png)
+![Architecture Diagram](/Deliverables/UML/PIPELINE.png)
+
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
