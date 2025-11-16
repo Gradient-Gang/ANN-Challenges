@@ -16,13 +16,11 @@ $
 
 Each fold involves the creation of training/ validation splits, construction of encoder/ decoder/ head modules according to $\theta^{(j)}$, application of He initialization 
 %$W \sim \mathcal{N}\!\left(0, \frac{2}{\mathrm{fan\_in}}\right),$
-, optional wrapping in a windowed model, and PyTorch Lightning training with early stopping and checkpointing.
-
-The pipeline generate predictions 
+, optional wrapping in a windowed model, and PyTorch Lightning training with early stopping and checkpointing. The pipeline generate predictions 
 $
 P \in \mathbb{R}^{N_{\mathrm{test}} \times C},
 $
-applies aggregation rules, converts class indices to textual labels, and writes the final CSV. 
+applies aggregation rules, converts class indices to textual labels, and creates the final CSV. 
 
 %Additional utilities include validation of parameter configurations, ensemble model support, feature-selection wrappers, and automatic He initialization.
 
@@ -30,8 +28,13 @@ applies aggregation rules, converts class indices to textual labels, and writes 
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{Deliverables/Report1/img/Architectures.png}
+    \vspace{-20pt}
     \label{fig:Architectures}
 \end{figure}
-
 % may be removed if too long
-Supported architectures include RNN encoders (multi-layer LSTM/GRU with optional bidirectionality), Conv1D encoders (temporal convolutions with pooling), MultiScaleCNN (parallel convolutional branches at multiple receptive fields), and feedforward classification heads. Additionally if enabled we build a symmetric decoder.
+%Supported architectures include RNN encoders (multi-layer LSTM/GRU with optional bidirectionality), Conv1D encoders (temporal convolutions with pooling), MultiScaleCNN (parallel convolutional branches at multiple receptive fields), and feedforward classification heads. Additionally if enabled we build a symmetric decoder.
+%Supported macroarchitectures are Direct ad Autoencoder.
+%The encoder can be recurrent (RNN/LSTM/GRU), Conv1D (temporal convolutions with pooling) or MultiScaleCNN (parallel convolutional branches at multiple receptive fields). A feed forward network performs the classification. If the macroarchitecture is an autoencoder, the decoder is built symmetrically wrt the decoder.
+Supported macro-architectures are Direct and Autoencoder. The encoder may be RNN/LSTM/GRU, Conv1D (temporal convolutions with pooling), or MultiScaleCNN (parallel convolutional branches at multiple receptive fields).
+A feed-forward head performs classification.
+In the Autoencoder setting, the decoder mirrors the encoder.
