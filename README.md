@@ -27,6 +27,16 @@ poetry install
 poetry env activate
 ```
 
+### Preprocessing the Dataset
+
+```python
+from GradientGang.PreProcessing.PreProcessor import PreProcessor
+
+# Load configuration and run preprocessing
+preprocessor = PreProcessor.fromYAML("Notebook/params/preprocessing_params_global_features.yaml")
+preprocessor.preprocess()
+```
+
 ### Running Experiments
 
 ```python
