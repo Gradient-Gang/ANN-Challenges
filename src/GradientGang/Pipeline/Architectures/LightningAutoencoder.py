@@ -119,7 +119,7 @@ class LightningAutoencoder(L.LightningModule):
         self.feedforward = FeedForward(feedforward_params)
 
         # Initialize F1Score metric as instance variable
-        self.f1Function = F1Score(task="multiclass", num_classes=output_dim, average="macro")
+        self.f1Function = F1Score(task="multiclass", num_classes=output_dim, average="weighted")
 
         # Initialize loss functions
         self.reconstructionLossFunction = torch.nn.MSELoss()

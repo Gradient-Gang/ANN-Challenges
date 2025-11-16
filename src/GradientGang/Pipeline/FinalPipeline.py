@@ -1819,7 +1819,7 @@ class FinalPipeline:
             model = model.to(device)
 
             # Compute F1 with torchmetrics
-            f1_metric = F1Score(task="multiclass", num_classes=3, average="macro").to(
+            f1_metric = F1Score(task="multiclass", num_classes=3, average="weighted").to(
                 device
             )
 
