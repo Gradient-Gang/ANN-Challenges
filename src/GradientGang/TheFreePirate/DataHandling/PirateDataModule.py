@@ -126,6 +126,25 @@ class PirateDataModule(lightning.LightningDataModule):
             self.testGlobalFeaturesDf.values, dtype=torch.float32
         )
 
+    def getDataInfoKFold(self):
+        if not hasattr(self, "folds"):
+            raise ValueError("K-Folds not set up. Call setupKFolds() first.")
+
+        return {
+            "numFolds": len(self.folds),
+            "foldSizes": [
+                {
+                    "trainSize": len(trainSubset),
+                    "valSize": len(valSubset),
+                }
+                for trainSubset, valSubset in self.folds
+            ],
+            "shapes": {
+                "train": self.folds[0][0].datasets[0].getShape(),
+                "val": self.folds[0][1].getShape(),
+            },
+        }
+
     def setupKFolds(
         self,
         nFolds: int = 5,
@@ -143,60 +162,96 @@ class PirateDataModule(lightning.LightningDataModule):
         print(
             f"[PirateDataModule] Setting up K-Folds({nFolds}) with data augmentation..."
         )
-        # Apply data augmentation to training data
-        augmentedTimeSeries = dataAugmenter.augment(self.trainTimeSeriesTensor, dim=1)
-        augmentedTimeSeries = windowingAugmenter.augment(augmentedTimeSeries, dim=1)
-
-        # Repeat global features and labels accordingly
-        nCopies = dataAugmenter.nCopies + (1 if dataAugmenter.keepOriginal else 0)
-        repeatedGlobalFeatures = self.trainGlobalFeaturesTensor.repeat(nCopies, 1)
-        repeatedLabels = self.trainLabelsTensor.repeat(nCopies)
-
-        print("[PirateDataModule] Data augmentation completed ")
-        # Create labelled dataset
-        self.labeledDataset = PirateDataset(
-            timeSeriesTensor=augmentedTimeSeries,
-            globalFeaturesTensor=repeatedGlobalFeatures,
-            labelsTensor=repeatedLabels,
-        )
-
-        # Create unlabeled dataset from test data
-        if augmentTestSet:
-            augmentedTestTimeSeries = dataAugmenter.augment(
-                self.testTimeSeriesTensor, dim=1
-            )
-        else:
-            augmentedTestTimeSeries = self.testTimeSeriesTensor
-
-        augmentedTestTimeSeries = windowingAugmenter.augment(
-            augmentedTestTimeSeries, dim=1
-        )
-
-        repeatedGlobalFeatures = self.testGlobalFeaturesTensor.repeat(nCopies, 1)
-
-        self.unlabeledDataset = PirateDataset(
-            timeSeriesTensor=augmentedTestTimeSeries,
-            globalFeaturesTensor=repeatedGlobalFeatures,
-            labelsTensor=-torch.ones(
-                self.testTimeSeriesTensor.shape[0] * nCopies, dtype=torch.long
-            ),  # dummy labels
-        )
 
         # Prepare stratified K-Fold splits
         skf = StratifiedKFold(n_splits=nFolds, shuffle=True, random_state=42)
         self.folds = []
 
-        X_indices = np.arange(len(self.labeledDataset))
-        y_labels = repeatedLabels.numpy()
+        X_indices = np.arange(len(self.trainLabelsTensor))
+        y_labels = self.trainLabelsTensor.numpy()
+
+        if includeTestInFolds:
+            if augmentTestSet:
+                # Apply data augmentation to test data
+                augmentedTestTimeSeries = dataAugmenter.augment(
+                    self.testTimeSeriesTensor, dim=1
+                )
+                nCopies = dataAugmenter.nCopies + (
+                    1 if dataAugmenter.keepOriginal else 0
+                )
+                # Repeat global features accordingly for test data
+                repeatedTestGlobalFeatures = self.testGlobalFeaturesTensor.repeat(
+                    nCopies, 1
+                )
+
+            else:
+                nCopies = 1
+                augmentedTestTimeSeries = self.testTimeSeriesTensor
+                repeatedTestGlobalFeatures = self.testGlobalFeaturesTensor
+
+            # Only apply windowing to test data
+            augmentedTestTimeSeries = windowingAugmenter.augment(
+                augmentedTestTimeSeries, dim=1
+            )
+
+            # Create unlabeled dataset from test data
+            self.unlabeledDataset = PirateDataset(
+                timeSeriesTensor=augmentedTestTimeSeries,
+                globalFeaturesTensor=repeatedTestGlobalFeatures,
+                labelsTensor=-torch.ones(
+                    self.testTimeSeriesTensor.shape[0] * nCopies, dtype=torch.long
+                ),  # dummy labels
+            )
 
         for train_idx, val_idx in skf.split(X_indices, y_labels):
-            trainSubset = Subset(self.labeledDataset, train_idx)
-            if includeTestInFolds:
-                # Combine with unlabeled dataset
-                trainSubset = ConcatDataset([trainSubset, self.unlabeledDataset])
+            # Apply data augmentation to training data
+            augmentedTrainTimeSeries = dataAugmenter.augment(
+                self.trainTimeSeriesTensor[train_idx], dim=1
+            )
+            augmentedTrainTimeSeries = windowingAugmenter.augment(
+                augmentedTrainTimeSeries, dim=1
+            )
 
-            valSubset = Subset(self.labeledDataset, val_idx)
-            self.folds.append((trainSubset, valSubset))
+            # Repeat global features and labels accordingly for training data
+            nCopies = dataAugmenter.nCopies + (1 if dataAugmenter.keepOriginal else 0)
+            repeatedTrainGlobalFeatures = self.trainGlobalFeaturesTensor[
+                train_idx
+            ].repeat(nCopies, 1)
+            repeatedTrainLabels = self.trainLabelsTensor[train_idx].repeat(nCopies)
+
+            # Create labelled training dataset
+            trainDataset = PirateDataset(
+                timeSeriesTensor=augmentedTrainTimeSeries,
+                globalFeaturesTensor=repeatedTrainGlobalFeatures,
+                labelsTensor=repeatedTrainLabels,
+            )
+
+            # Apply data augmentation to validation data
+            augmentedValTimeSeries = dataAugmenter.augment(
+                self.trainTimeSeriesTensor[val_idx], dim=1
+            )
+            augmentedValTimeSeries = windowingAugmenter.augment(
+                augmentedValTimeSeries, dim=1
+            )
+
+            # Repeat global features and labels accordingly for validation data
+            repeatedValGlobalFeatures = self.trainGlobalFeaturesTensor[val_idx].repeat(
+                nCopies, 1
+            )
+            repeatedValLabels = self.trainLabelsTensor[val_idx].repeat(nCopies)
+
+            # Create labelled validation dataset
+            valDataset = PirateDataset(
+                timeSeriesTensor=augmentedValTimeSeries,
+                globalFeaturesTensor=repeatedValGlobalFeatures,
+                labelsTensor=repeatedValLabels,
+            )
+
+            if includeTestInFolds:
+                # Combine with unlabeled dataset for training
+                trainDataset = ConcatDataset([trainDataset, self.unlabeledDataset])
+
+            self.folds.append((trainDataset, valDataset))
 
         print(f"[PirateDataModule] K-Folds setup completed with {nFolds} folds.")
 
