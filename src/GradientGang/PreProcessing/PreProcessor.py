@@ -544,6 +544,23 @@ class PreProcessor:
 
         return train_selected, test_selected
 
+    def add_fourier_features(self, data: pd.DataFrame, time_column: str, frequencies: list[float]) -> pd.DataFrame:
+        """
+        Add Fourier features (sin and cos of time at different frequencies) to the dataset.
+
+        Args:
+            data (pd.DataFrame): The input DataFrame containing a time column.
+            time_column (str): The name of the column representing time.
+            frequencies (list[float]): List of frequencies to use for Fourier features.
+
+        Returns:
+            pd.DataFrame: The DataFrame with added Fourier features.
+        """
+        for freq in frequencies:
+            data[f'sin_{freq}'] = np.sin(2 * np.pi * freq * data[time_column])
+            data[f'cos_{freq}'] = np.cos(2 * np.pi * freq * data[time_column])
+        return data
+
     def preprocess(self):
         """
         Main preprocessing function to load, process, and save data.
@@ -712,6 +729,20 @@ class PreProcessor:
                 # Continue with unselected features
         else:
             print("Feature selection not applied.")
+
+        # Add Fourier features if specified
+        add_fourier = self.params.get("add_fourier_features", False)
+        if add_fourier:
+            try:
+                time_column = self.params.get("time_column", "time")
+                frequencies = self.params.get("fourier_frequencies", [1.0, 0.1, 0.01])
+
+                train_data = self.add_fourier_features(train_data, time_column, frequencies)
+                test_data = self.add_fourier_features(test_data, time_column, frequencies)
+
+                print("Fourier features added successfully.")
+            except Exception as e:
+                print(f"Error adding Fourier features: {e}")
 
         # Save final global features (selected or full)
         try:
