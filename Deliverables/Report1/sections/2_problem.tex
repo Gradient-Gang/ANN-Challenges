@@ -1,21 +1,15 @@
-\vspace{-20pt}
+\vspace{-10pt}
 \section{Problem Analysis}
 \label{sec:problem}
 \vspace{-10pt}
-The problem presents several key challenges. %The model must capture both long-range temporal dependencies and cross-channel interactions, while integrating heterogeneous features. 
+The problem presents several key challenges. 
+
+%The model must capture both long-range temporal dependencies and cross-channel interactions, while integrating heterogeneous features. 
 The limited dataset size and class imbalance increases the risk of overfitting and the bias predictions toward frequent labels, requiring regularization, careful hyperparameter tuning, and robust cross-validation.
 
 Our approach is based on several assumptions. Pain levels are primarily reflected in temporal dynamics.
 %, including trends, variability, and motion irregularities, which may occur at multiple temporal scales from slow posture drifts to fast joint oscillations, motivating the use of convolutional and multiscale encoders.
 Global static features, such as subject-specific metadata, provide priors that influence pain prediction and should be integrated with dynamic signals. Dimensionality reduction techniques can capture dominant modes, reduce redundancy, and improve generalization. 
-Doing some initial analysis on the dataset, we realized that the signal 'joint\_30' was constant and that the physical information features had the same distribution over the whole dataset. In addition, the signals 'joint\_10' and 'joint\_11' had 99\% of correlation.
+Doing some initial analysis on the dataset, we realized that the signal 'joint\_30' was constant and that the physical information features had the same distribution over the whole dataset. In addition, the signals 'joint\_10' and 'joint\_11' had 99\% of correlation (Appendix~\ref{app:correlation}).
 
 %Finally, given the dataset size, K-fold cross-validation is essential for reliable performance estimates.
-
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{Deliverables/Report1/img/correlation_10_11.png}
-    \label{fig:Architectures} 
-    \vspace{-20pt}
-\end{figure}

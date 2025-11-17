@@ -1,10 +1,15 @@
-\vspace{-20pt}
+
 \section{Conclusions}
 \vspace{-10pt}
-This work presented a complete pipeline for pain-level classification from multivariate time series, integrating preprocessing, feature extraction, an adaptive architecture creation, extensive hyperparameter optimization, and robust evaluation via K-fold cross-validation.
+We presented our solution for this classification task. 
+Although the software package is designed to be general, this generality results in a large hyperparameter search space. Given the time constraints and the associated curse of dimensionality, exhaustive exploration was not feasible.
 
-The experimentation phase showed that the top-performing configuration combined multiscale temporal convolutions, a compact global-feature branch, and windowed prediction aggregation. This setup achieved strong overall performance and confirmed the effectiveness of modular temporal modeling. 
-However, the evaluation also revealed persistent challenges, notably class imbalance and the difficulty of capturing distinctive patterns for the rarer pain levels, reflecting limitations primarily linked to the data rather than the architecture itself.
+Although we achieved a high test F1-score (0.9480), we expect that with more time for hyperparameter exploration the performance could improve further. Future work may include integrating attention-based encoders, enlarging the dataset, or augmenting it with synthetic expert-generated trajectories to better handle underrepresented classes.
 
 
-Future improvements could involve integrating attention-based encoders or experimenting with self-supervised temporal representations. Expanding the dataset or augmenting it with synthetic but physiologically meaningful trajectories could further enhance performance, especially for underrepresented classes.
+%This work present a complete pipeline for pain-level classification from multivariate time series, integrating preprocessing, feature extraction, an adaptive architecture creation, extensive hyperparameter optimization, and robust evaluation via K-fold cross-validation.
+
+%The experimentation phase showed that the top-performing configuration combined multiscale temporal convolutions, a compact global-feature branch, and windowed prediction aggregation. This setup achieved strong overall performance and confirmed the effectiveness of modular temporal modeling. 
+%However, the evaluation also revealed persistent challenges, notably class imbalance and the difficulty of capturing distinctive patterns for the rarer pain levels, reflecting limitations primarily linked to the data rather than the architecture itself.
+
+
