@@ -3,10 +3,12 @@ import torch
 from .Models.FeedForwardModel import FeedForwardModel
 from .AggregationStrategies import (
     AverageLogitsAggregationStrategy,
+    MajorityVotingAggregationStrategy,
 )
 from ..Utils import getRaise
 from torchmetrics import F1Score
 from copy import deepcopy
+from ..Lookups import classificationAggregationStrategies
 
 
 class PirateLightningModule(pytorch_lightning.LightningModule):
@@ -17,7 +19,16 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         paramsName = "modelParams in LightningModule.__init__"
 
         # Get aggregation strategy
-        self.aggregationStrategy = AverageLogitsAggregationStrategy()
+        aggregationStrategyForClassification = getRaise(
+            params, "aggregationStrategyForClassification", paramsName
+        )
+
+        self.aggregationStrategyForLogits = AverageLogitsAggregationStrategy()
+        self.aggregationStrategyForClassification = getRaise(
+            classificationAggregationStrategies,
+            aggregationStrategyForClassification,
+            "Aggregation Strategy Lookup",
+        )()
 
         # Setup Losses
         self.classificationLoss = torch.nn.CrossEntropyLoss()
@@ -68,6 +79,12 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         # Predictor
         self.predictorNumLayers = getRaise(params, "predictorNumLayers", paramsName)
         self.predictorDropout = getRaise(params, "predictorDropout", paramsName)
+        self.predictorFixALogit = getRaise(params, "predictorFixALogit", paramsName)
+        self.predictorLogitToFix = (
+            None
+            if not self.predictorFixALogit
+            else getRaise(params, "predictorLogitToFix", paramsName)
+        )
 
         # Global Features
         if self.useGlobalFeatures:
@@ -105,6 +122,7 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
             nLayers=self.predictorNumLayers,
             dropoutProb=self.predictorDropout,
             activation=self.activationFunction,
+            logitToFix=self.predictorLogitToFix,
         )
 
         # Setup time series decoder
@@ -211,7 +229,7 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         predictions = predictions.view(
             batchSize, nWindows, -1
         )  # (batchSize, nWindows, nClasses)
-        aggregatedPredictions = self.aggregationStrategy.aggregate(
+        aggregatedPredictions = self.aggregationStrategyForLogits.aggregate(
             predictions
         )  # (batchSize, nClasses)
 
@@ -259,13 +277,17 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
             predictions = predictions.view(
                 -1, nWindows, predictions.size(-1)
             )  # (batchSize_labeled, nWindows, nClasses)
-            predictions = self.aggregationStrategy.aggregate(predictions)
+            predictionsLogits = self.aggregationStrategyForLogits.aggregate(predictions)
 
             # Compute losses
-            classificationLoss = self.classificationLoss(predictions, labels)
+            classificationLoss = self.classificationLoss(predictionsLogits, labels)
+            predictedLabels = self.aggregationStrategyForClassification.aggregate(
+                predictions
+            )
         else:
             classificationLoss = torch.tensor(0.0, device=self.device)
-            predictions = torch.zeros((0, self.numClasses), device=self.device)
+            predictionsLogits = torch.zeros((0, self.numClasses), device=self.device)
+            predictedLabels = torch.zeros((0,), dtype=torch.long, device=self.device)
 
         timeSeries = timeSeries.view_as(timeSeriesReconstructed)
         reconstructionLossTimeSeries = self.reconstructionLoss(
@@ -294,7 +316,6 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         self.log("train/total_loss", totalLoss, prog_bar=True)
 
         if labels.size(0) != 0:
-            predictedLabels = torch.argmax(predictions, dim=1)
             self.log("train/f1_score", self.f1(predictedLabels, labels), prog_bar=True)
 
         if self.useGlobalFeatures:
@@ -331,13 +352,17 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
 
             # Aggregate predictions
             predictions = predictions.view(-1, nWindows, predictions.size(-1))
-            predictions = self.aggregationStrategy.aggregate(predictions)
+            predictionsLogits = self.aggregationStrategyForLogits.aggregate(predictions)
 
             # Compute losses
-            classificationLoss = self.classificationLoss(predictions, labels)
+            classificationLoss = self.classificationLoss(predictionsLogits, labels)
+            predictedLabels = self.aggregationStrategyForClassification.aggregate(
+                predictions
+            )
         else:
             classificationLoss = torch.tensor(0.0, device=self.device)
-            predictions = torch.zeros((0, self.numClasses), device=self.device)
+            predictionsLogits = torch.zeros((0, self.numClasses), device=self.device)
+            predictedLabels = torch.zeros((0,), dtype=torch.long, device=self.device)
 
         timeSeries = timeSeries.view_as(timeSeriesReconstructed)
         reconstructionLossTimeSeries = self.reconstructionLoss(
@@ -366,7 +391,6 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         self.log("val/total_loss", totalLoss, prog_bar=True)
 
         if labels.size(0) != 0:
-            predictedLabels = torch.argmax(predictions, dim=1)
             self.log("val/f1_score", self.f1(predictedLabels, labels), prog_bar=True)
 
         if self.useGlobalFeatures:

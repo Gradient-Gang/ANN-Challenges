@@ -212,7 +212,9 @@ class PiratePipeline:
         return valF1Score
 
     def kFoldEvaluation(
-        self, params: dict, foldResultCallbacks: list[Callable[[float], None]] = []
+        self,
+        params: dict,
+        foldResultCallbacks: list[Callable[[list[float]], None]] = [],
     ) -> list[float]:
         self.setupKfoldEvaluation(params)
 
@@ -228,6 +230,6 @@ class PiratePipeline:
 
             # Call fold result callbacks
             for callback in foldResultCallbacks:
-                callback(foldEvaluation)
+                callback(evaluations)
 
         return evaluations
