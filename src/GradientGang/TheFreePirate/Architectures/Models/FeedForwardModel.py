@@ -5,7 +5,12 @@ from ...Lookups import activationFunctionsLookup
 class FeedForwardModel(torch.nn.Module):
     @staticmethod
     def linearlyInterpolateLayers(
-        inputDim, outputDim, nLayers: int, activation: str, dropoutProb: float
+        inputDim,
+        outputDim,
+        nLayers: int,
+        activation: str,
+        dropoutProb: float,
+        logitToFix: int | None = None,
     ):
         """
         Create a feed-forward network with linearly interpolated hidden layer sizes.
@@ -43,6 +48,7 @@ class FeedForwardModel(torch.nn.Module):
         outputDim: int,
         activation: str = "relu",
         dropoutProb: float = 0.0,
+        logitToFix: int | None = None,
     ):
         """
         FeedForwardModel constructs a feed-forward neural network.
@@ -57,9 +63,10 @@ class FeedForwardModel(torch.nn.Module):
         super(FeedForwardModel, self).__init__()
         self.inputDim = inputDim
         self.hiddenDims = hiddenDims
-        self.outputDim = outputDim
+        self.outputDim = outputDim - (logitToFix is not None)
         self.activation = activation
         self.dropoutProb = dropoutProb
+        self.logitToFix = logitToFix
 
         layers = []
         prevDim = inputDim
@@ -88,7 +95,21 @@ class FeedForwardModel(torch.nn.Module):
         Returns:
             torch.Tensor: Output tensor of shape (batch_size, outputDim).
         """
-        return self.network(x)
+        logits = self.network(x)
+
+        if self.logitToFix is not None:
+            # Fix the specified logit to zero
+            fixedLogits = torch.zeros_like(logits[:, :, 0], device=logits.device)
+            logits = torch.cat(
+                [
+                    logits[:, :, : self.logitToFix],
+                    fixedLogits.unsqueeze(-1),
+                    logits[:, :, self.logitToFix :],
+                ],
+                dim=-1,
+            )
+
+        return logits
 
     def heInitialize(self):
         """
