@@ -1,5 +1,10 @@
 import torch
-
+from .Architectures.AggregationStrategies import (
+    ClassificationAggregationStrategy,
+    MajorityVotingAggregationStrategy,
+    AverageLogitsAggregationStrategy,
+    EntropyWeightedMajorityVotingAggregationStrategy,
+)
 
 activationFunctionsLookup = {
     "relu": torch.nn.ReLU,
@@ -11,4 +16,11 @@ activationFunctionsLookup = {
     "sigmoid": torch.nn.Sigmoid,
     "softplus": torch.nn.Softplus,
     "softsign": torch.nn.Softsign,
+}
+
+
+classificationAggregationStrategies = {
+    "majorityVoting": MajorityVotingAggregationStrategy,
+    "averageLogits": AverageLogitsAggregationStrategy,
+    "entropyWeightedMajorityVoting": EntropyWeightedMajorityVotingAggregationStrategy,
 }

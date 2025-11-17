@@ -8,6 +8,7 @@ from .AggregationStrategies import (
 from ..Utils import getRaise
 from torchmetrics import F1Score
 from copy import deepcopy
+from ..Lookups import classificationAggregationStrategies
 
 
 class PirateLightningModule(pytorch_lightning.LightningModule):
@@ -18,8 +19,16 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         paramsName = "modelParams in LightningModule.__init__"
 
         # Get aggregation strategy
+        aggregationStrategyForClassification = getRaise(
+            params, "aggregationStrategyForClassification", paramsName
+        )
+
         self.aggregationStrategyForLogits = AverageLogitsAggregationStrategy()
-        self.aggregationStrategyForClassification = MajorityVotingAggregationStrategy()
+        self.aggregationStrategyForClassification = getRaise(
+            classificationAggregationStrategies,
+            aggregationStrategyForClassification,
+            "Aggregation Strategy Lookup",
+        )()
 
         # Setup Losses
         self.classificationLoss = torch.nn.CrossEntropyLoss()
