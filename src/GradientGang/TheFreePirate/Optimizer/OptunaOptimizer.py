@@ -39,6 +39,7 @@ phi = {
 }
 """
 
+
 class OptunaOptimizer:
     database = "REMOVED_KEY"
 
@@ -49,28 +50,29 @@ class OptunaOptimizer:
             self.storage = study._storage  # Access the actual storage
             self._trial_id = study.best_trial._trial_id  # Use best trial's ID
 
-        def suggest_int(self, name, low, high, *, step: int, log = False):
+        def suggest_int(self, name, low, high, *, step: int, log=False):
             return getRaise(self.params, name, "best_params in MockTrial")
-        
+
         def suggest_categorical(self, name, choices):
             return getRaise(self.params, name, "best_params in MockTrial")
-        
-        def suggest_float(self, name, low, high, *, step = None, log = False):
-            return getRaise(self.params, name, "best_params in MockTrial")    
+
+        def suggest_float(self, name, low, high, *, step=None, log=False):
+            return getRaise(self.params, name, "best_params in MockTrial")
 
     # setup section
     def __init__(self, name: str, dataParams, callbackParams, params):
         self.params = params
 
-        #self.study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0), storage=OptunaOptimizer.database)
-        self.study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0), storage=None)
-        self.pipeline = PiratePipeline(name, dataParams, callbackParams, seed = 42)
-    
+        self.study = optuna.create_study(
+            study_name=name,
+            sampler=optuna.samplers.TPESampler(seed=0),
+            storage=OptunaOptimizer.database,
+        )
+        # self.study = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0), storage=None)
+        self.pipeline = PiratePipeline(name, dataParams, callbackParams, seed=42)
+
     # objective section
-    def optimize(
-        self,
-        n_trials: int = None
-    ) -> optuna.study:
+    def optimize(self, n_trials: int = None) -> optuna.study:
         """
         Optimize the architecture builder function using Optuna.
         Args:
@@ -108,17 +110,19 @@ class OptunaOptimizer:
     def _build_arch(self, params: dict):
         phi = {}
 
-        for (key, value) in params.items():
+        for key, value in params.items():
             if isinstance(value, dict):
                 phi[key] = self._build_arch(value)
             elif issubclass(type(value), AbstractHyperparameter):
                 phi[key] = value.getValue(self.current_trial, self)
             else:
                 phi[key] = value
-        
+
         return phi
-    
+
     def getBestModel(self):
-        self.current_trial = OptunaOptimizer.MockTrial(self.study.best_params, self.study)
+        self.current_trial = OptunaOptimizer.MockTrial(
+            self.study.best_params, self.study
+        )
 
         return self._build_arch(self.params)
