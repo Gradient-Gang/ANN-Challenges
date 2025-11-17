@@ -126,7 +126,7 @@ class PirateDataModule(lightning.LightningDataModule):
             self.testGlobalFeaturesDf.values, dtype=torch.float32
         )
 
-    def getDataInfoKFold(self):
+    def getDataInfoKFold(self) -> dict:
         if not hasattr(self, "folds"):
             raise ValueError("K-Folds not set up. Call setupKFolds() first.")
 

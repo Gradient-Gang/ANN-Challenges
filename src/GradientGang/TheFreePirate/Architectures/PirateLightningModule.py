@@ -12,6 +12,7 @@ from copy import deepcopy
 class PirateLightningModule(pytorch_lightning.LightningModule):
     def __init__(self, params: dict, *args, **kwargs):
         super().__init__()
+        self.save_hyperparameters(params)
         params = deepcopy(params)
         paramsName = "modelParams in LightningModule.__init__"
 
@@ -376,8 +377,10 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
 
         return totalLoss
 
-    def configure_optimizers(self):
+    def configure_optimizers(self):  # type: ignore
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.learningRate, weight_decay=self.weightDecay
         )
+
+        # Return a tuple of optimizer and scheduler
         return optimizer
