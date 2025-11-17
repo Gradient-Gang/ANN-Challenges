@@ -1,5 +1,9 @@
 import optuna
 
-class AbstractHyperParameter:
-    def getValue(self, trial: optuna.Trial):
+class AbstractHyperparameter:
+    def getValue(self, trial: optuna.Trial, caller):
+        pass
+
+class AbstractValueHyperparameter (AbstractHyperparameter):
+    def getValue(self, trial, caller):
         pass
