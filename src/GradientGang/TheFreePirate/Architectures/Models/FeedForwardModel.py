@@ -39,6 +39,7 @@ class FeedForwardModel(torch.nn.Module):
             outputDim=outputDim,
             activation=activation,
             dropoutProb=dropoutProb,
+            logitToFix=logitToFix,
         )
 
     def __init__(
@@ -80,7 +81,7 @@ class FeedForwardModel(torch.nn.Module):
             prevDim = hiddenDim
 
         # Output layer
-        layers.append(torch.nn.Linear(prevDim, outputDim))
+        layers.append(torch.nn.Linear(prevDim, self.outputDim))
 
         self.network = torch.nn.Sequential(*layers)
         self.heInitialize()
@@ -99,12 +100,13 @@ class FeedForwardModel(torch.nn.Module):
 
         if self.logitToFix is not None:
             # Fix the specified logit to zero
-            fixedLogits = torch.zeros_like(logits[:, :, 0], device=logits.device)
+            # Logits (batch_size, outputDim + 1)
+            fixedLogits = torch.zeros_like(logits[:, 0], device=logits.device)
             logits = torch.cat(
                 [
-                    logits[:, :, : self.logitToFix],
+                    logits[:, : self.logitToFix],
                     fixedLogits.unsqueeze(-1),
-                    logits[:, :, self.logitToFix :],
+                    logits[:, self.logitToFix :],
                 ],
                 dim=-1,
             )
@@ -120,3 +122,69 @@ class FeedForwardModel(torch.nn.Module):
                 torch.nn.init.kaiming_normal_(m.weight, nonlinearity=self.activation)
                 if m.bias is not None:
                     torch.nn.init.constant_(m.bias, 0.0)
+
+
+class FeedForwardAutoencoder(torch.nn.Module):
+    @staticmethod
+    def linearlyInterpolate(
+        inputDim,
+        embeddingDim,
+        nLayers: int,
+        activation: str,
+        dropoutProb: float,
+    ):
+        """
+        Create a feed-forward autoencoder with linearly interpolated hidden layer sizes.
+        Args:
+            inputDim (int): Dimension of the input features.
+            outputDim (int): Dimension of the output layer.
+            nLayers (int): Number of hidden layers.
+            activation (str): Activation function to use.
+            dropoutProb (float): Dropout probability.
+        Returns:
+            FFAutoencoder: The constructed feed-forward autoencoder.
+        """
+
+        encoder = FeedForwardModel.linearlyInterpolateLayers(
+            inputDim,
+            embeddingDim,
+            nLayers,
+            activation,
+            dropoutProb,
+        )
+
+        decoder = FeedForwardModel.linearlyInterpolateLayers(
+            embeddingDim,
+            inputDim,
+            nLayers,
+            activation,
+            dropoutProb,
+        )
+
+        return FeedForwardAutoencoder(encoder, decoder)
+
+    def __init__(self, encoder: FeedForwardModel, decoder: FeedForwardModel):
+        """
+        FFAutoencoder constructs a feed-forward autoencoder.
+
+        Args:
+            encoder (FeedForwardModel): The encoder part of the autoencoder.
+            decoder (FeedForwardModel): The decoder part of the autoencoder.
+        """
+        super(FeedForwardAutoencoder, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the autoencoder.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, inputDim).
+
+        Returns:
+            torch.Tensor: Reconstructed tensor of shape (batch_size, inputDim).
+        """
+        latent = self.encoder(x)
+        reconstructed = self.decoder(latent)
+        return reconstructed
