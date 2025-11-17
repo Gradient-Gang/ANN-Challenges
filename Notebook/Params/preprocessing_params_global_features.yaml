@@ -48,3 +48,14 @@ columns_excluded_from_normalization:
   - time
   - isPirate
   - isNotPirate
+
+# Fourier features
+add_fourier_features: true
+fourier_frequencies:
+  - 0.00625  # 1/160 (full cycle over 160 steps)
+  - 0.0125   # 2/160 (two cycles over 160 steps)
+  - 0.025    # 4/160 (four cycles over 160 steps)
+  - 0.05     # 8/160 (eight cycles over 160 steps)
+# Column for time
+# Ensure this column exists in the dataset
+time_column: "time"

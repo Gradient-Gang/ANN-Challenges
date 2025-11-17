@@ -53,9 +53,8 @@ class PiratePipeline:
 
         self.dataSetup(dataParams)
 
-        modelParams = deepcopy(modelParams)
-        modelParams["dataModuleInfo"] = self.dataModule.getDataInfoKFold()
-        self.modelSetup(modelParams)
+        self.modelParams = deepcopy(modelParams)
+        self.modelParams["dataModuleInfo"] = self.dataModule.getDataInfoKFold()
 
     def evaluateParameters(self, params: dict) -> float:
 
@@ -171,6 +170,9 @@ class PiratePipeline:
         return callbacksList, loggerCallback
 
     def evaluateOnFold(self, foldIndex: int) -> float:
+        # Model setup
+        self.modelSetup(self.modelParams)
+
         # Extract data
         trainDataLoader, valDataLoader = self.dataModule.getFoldDataLoaders(foldIndex)
 
