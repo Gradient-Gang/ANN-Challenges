@@ -9,7 +9,7 @@
 %Supported architectures include RNN encoders (multi-layer LSTM/GRU with optional bidirectionality), Conv1D encoders (temporal convolutions with pooling), MultiScaleCNN (parallel convolutional branches at multiple receptive fields), and feedforward classification heads. Additionally if enabled we build a symmetric decoder.
 %Supported macroarchitectures are Direct ad Autoencoder.
 %The encoder can be recurrent (RNN/LSTM/GRU), Conv1D (temporal convolutions with pooling) or MultiScaleCNN (parallel convolutional branches at multiple receptive fields). A feed forward network performs the classification. If the macroarchitecture is an autoencoder, the decoder is built symmetrically wrt the decoder.
-In our package the supported macro-architectures are Direct (Encoder + FFn) and Autoencoder (AE + FFn).
+\noindent In our package the supported macro-architectures are Direct (Encoder + FFn) and Autoencoder (AE + FFn).
 The encoder may be RNN/LSTM/GRU, Conv1D (temporal convolutions with pooling), or MultiScaleCNN (parallel convolutional branches at multiple receptive fields). If enabled, the decoder mirrors the encoder. Finally a feed-forward head performs classification.
 
 
@@ -18,24 +18,31 @@ We firstly considered a direct architecture as a baseline presented during the c
 
 \noindent \textbf{3.3 Pipeline}
 
-\noindent Once the dataset is preprocessed, we setup the Optuna study, connecting all the computational resources available (e.g. local, Kaggle and Colab GPUs) to the same experiment in the Database.
+\noindent Once the dataset is preprocessed, we setup the Optuna study, connecting all the computational resources (e.g. local, Kaggle and Colab GPUs) to the same experiment in the Database.
 The optimization routine executes $n_{\mathrm{trials}}$. For each trial, Optuna samples an architecture/hyperparameter configuration among the implemented ones, using the \href{https://optuna.readthedocs.io/en/stable/reference/samplers/generated/optuna.samplers.TPESampler.html}{TPE sampler} and \href{https://optuna.readthedocs.io/en/stable/reference/generated/optuna.pruners.MedianPruner.html}{Median Pruner}.
 This allows to reach faster a good configuration compared to the standard grid search or MC sampling.
 %The Pipeline module performs architecture selection, $K$-fold cross-validation, checkpointing, distributed training, and submission generation.  
 %The system integrates Optuna with TPE sampler and Median Pruner, a DB for persistent experiment tracking, PyTorch Lightning for modular training and logging, and TensorBoard for monitoring.  
 %The module supports multiple macro–architectures made of modular micro-architectures.
+Optuna chooses also to include or not global features, whether to weight the loss with the class weights and to perform or not windowing.
 
-Given the sampled configuration, 
+For each sampled configuration, we apply K-fold cross-validation with $K=5$. The pipeline, using the dataloader class, splits train and validation data, including the test data if the sampled macro-architecture is
+an AE and optionally loads the global features.
+The architecture is built using the sampled configuration and trained. We used \href{https://lightning.ai/}{Pytorch Lightning} as a way to simplify model training, checkpointing and logging.
+After each trial the F1Score is computed averaging the best checkpoints for every fold. 
+
+When we decide to stop the study, the best model is chosen as the one that maximizes that metric and the selected configuration (model + weights) is used to compute the predictions on the test data to generate the submission CSV.
+Optionally, we can retrain the best model or create an ensemble model where each submodel is the best checkpoint for every fold.
 
 %Given the datasets $X \in \mathbb{R}^{N \times F \times T}$, $G \in \mathbb{R}^{N \times D}$,the pipeline automates the selection of model parameters $\theta$, trained via cross-validation to maximize a validation metric (mean F1-score). The optimization routine executes $n_{\mathrm{trials}}$. For each trial \(j\), Optuna samples a hyperparameter configuration$\theta^{(j)} \sim q(\theta \mid \mathcal{S}),$ where $q$ is the TPE-induced density estimator. The objective function evaluates the metrics across $K$ folds:$\mathcal{L}(\theta^{(j)}) = \frac{1}{K} \sum_{k=1}^K \mathrm{F1}_{\mathrm{val}}^{(k)}(\theta^{(j)}).$
 
-Each fold involves the creation of training/ validation splits, construction of encoder/ decoder/ head modules according to $\theta^{(j)}$, application of He initialization 
+%Each fold involves the creation of training/ validation splits, construction of encoder/ decoder/ head modules according to $\theta^{(j)}$, application of He initialization 
 %$W \sim \mathcal{N}\!\left(0, \frac{2}{\mathrm{fan\_in}}\right),$
-, optional wrapping in a windowed model, and PyTorch Lightning training with early stopping and checkpointing. The pipeline generate predictions 
-$
-P \in \mathbb{R}^{N_{\mathrm{test}} \times C},
-$
-applies aggregation rules, converts class indices to textual labels, and creates the final CSV. 
+%, optional wrapping in a windowed model, and PyTorch Lightning training with early stopping and checkpointing. The pipeline generate predictions 
+%$
+%P \in \mathbb{R}^{N_{\mathrm{test}} \times C},
+%$
+%%applies aggregation rules, converts class indices to textual labels, and creates the final CSV. 
 
 %Additional utilities include validation of parameter configurations, ensemble model support, feature-selection wrappers, and automatic He initialization.
 

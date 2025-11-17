@@ -1,4 +1,4 @@
-\vspace{-20pt}
+\vspace{-10pt}
 \section{Methods}
 \vspace{-10pt}
 Wa aimed to build a software package in line with the SOTA MLOPS frameworks. We rely for the experiments on a fully automated pipeline that could be used to solve a general time-series classification problem.
@@ -6,9 +6,9 @@ In our pipeline, \href{https://optuna.org/}{Optuna} manages the architecture and
 \vspace{-10pt}
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\linewidth]{Deliverables/Report1/img/PIPELINE.png}
+    \includegraphics[width=0.95\linewidth]{Deliverables/Report1/img/PIPELINE.png}
     \label{fig:Architectures} 
-    \vspace{-20pt}
+    \vspace{-15pt}
 \end{figure}
 
 \noindent \textbf{3.1 Pre-processing}
@@ -19,10 +19,11 @@ In our pipeline, \href{https://optuna.org/}{Optuna} manages the architecture and
 During the loading, each sample is $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$. Firstly we map physical informations to a binary pirate–indicator $\texttt{isPirate} \in \{0,1\}$ and we drop the features we mentioned in \autoref{sec:problem}. After that, all continuous features are standardized using Z-score normalization and
 %, i.e. $\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f}.$ 
 %where \(\mu_f\) and \(\sigma_f\) are the mean and standard deviation.
-finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$, including statistical features (mean, variance, minimum, maximum, range), domain-specific features (aggregated pain–survey and joint–activity statistics) and PCA (applied independently to each trajectory $x_{i,f}$ keeping the 95\% of the explained variance).
-
-%Additionaly, when enabled PCA is applied independently to each trajectory $x_{i,f} = (x_{i,f}(1),\ldots,x_{i,f}(T))^\top \in \mathbb{R}^T$. PCA yields $x_{i,f} \approx U_f z_{i,f}$, where $U_f$ contains the leading eigenvectors and $z_{i,f}$ the corresponding POD coefficients. The number of retained components is the minimum $k$ s.t. $\sum_{j=1}^{k} \lambda_{f,j} \ge 0.95 \sum_{j=1}^{T} \lambda_{f,j},$ with $\lambda_{f,j}$ once computed POD coefficients are appended to the global feature vector.
+finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$, including statistical features (mean, variance, minimum, maximum, range), domain-specific features (aggregated pain–survey and joint–activity statistics) and PCA (applied independently to each trajectory $x_{i,f}$ keeping the 95\% of the explained variance Appendix~\ref{app:pca}).
 
 Global features are refined through a multi-stage selection procedure, including Random Forest, Mutual Information scoring and Lasso regression. The final subset of features is defined as the intersection of the top-ranked features across methods. 
 Additionally, since in the train dataset the 'no\_pain' label is dominant, to address the class imbalance the class weights are computed using the inverse-frequency scheme: $w_c = \frac{N}{C \, N_c}$.
+
+After we saw that the first experiments had bad performances, we decided to add to the pre-processing a module that perform data augmentation. We implemented time warping, jittering, scaling, offset and windowing.
+Windowing is not just used as data augmentation, but also to create an ensemble model over the windows for each sample.
 
