@@ -163,6 +163,8 @@ class PirateDataModule(lightning.LightningDataModule):
             f"[PirateDataModule] Setting up K-Folds({nFolds}) with data augmentation..."
         )
 
+        self.windowingAugmenter = windowingAugmenter
+
         # Prepare stratified K-Fold splits
         skf = StratifiedKFold(n_splits=nFolds, shuffle=True, random_state=42)
         self.folds = []
@@ -282,10 +284,10 @@ class PirateDataModule(lightning.LightningDataModule):
 
         return trainLoader, valLoader
 
-    def getTestLoader(self, windowAugmenter: WindowingAugmenter):
+    def getTestLoader(self):
         # TODO: add option for TestTimeAugmentation
         # Apply windowing to test data
-        augmentedTestTimeSeries = windowAugmenter.augment(
+        augmentedTestTimeSeries = self.windowingAugmenter.augment(
             self.testTimeSeriesTensor, dim=1
         )
 

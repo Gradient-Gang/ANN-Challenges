@@ -23,6 +23,12 @@ from copy import deepcopy
 
 from typing import Callable
 
+from ..Architectures.AggregationStrategies import MajorityVotingAggregationStrategy
+
+import torch
+
+import pandas as pd
+
 
 class PiratePipeline:
     def __init__(
@@ -209,6 +215,7 @@ class PiratePipeline:
             verbose=False,
         )
         valF1Score = valMetrics[0]["val/f1_score"]
+        self.bestModels.append(self.model)
         return valF1Score
 
     def kFoldEvaluation(
@@ -220,6 +227,8 @@ class PiratePipeline:
 
         numFolds = self.dataModule.getDataInfoKFold()["numFolds"]
         evaluations = []
+
+        self.bestModels = []
 
         for foldIndex in range(numFolds):
             print(f"\n=== Evaluating Fold {foldIndex + 1}/{numFolds} ===")
@@ -233,3 +242,34 @@ class PiratePipeline:
                 callback(evaluations)
 
         return evaluations
+
+    def predictFromEnsembledModel(self):
+        if not self.bestModels:
+            raise ValueError("No trained models available for prediction.")
+
+        aggregationStrategy = MajorityVotingAggregationStrategy()
+
+        kFoldPredictions = torch.tensor([])
+        for model in self.bestModels:
+            model.eval()
+            testLoader = self.dataModule.getTestLoader()
+            all_predictions = torch.tensor([])
+            with torch.no_grad():
+                for batch in testLoader:
+                    if isinstance(batch, (list, tuple)):
+                        features = batch[0]
+                    else:
+                        features = batch
+
+                    predictions, _, _ = model(features)
+                    all_predictions = torch.cat((all_predictions, predictions), dim=0)
+            kFoldPredictions = torch.cat(
+                (kFoldPredictions, all_predictions.unsqueeze(0)), dim=0
+            )
+
+        kFoldPredictions = kFoldPredictions.permute(
+            1, 0, 2
+        )  # (nSamples, nFolds, nClasses)
+        finalPredictions = aggregationStrategy.aggregate(kFoldPredictions)
+
+        return finalPredictions
