@@ -45,7 +45,7 @@ def generateSubmission(best_params, csv_path):
         with torch.no_grad():
             for i in range(numFolds):
                 # Load model for current fold
-                fold_model_path = f"{best_model_path}\\fold_{i}"
+                fold_model_path = f"{best_model_path}\\fold_{i}"                    # PRENDERE L'ULTIMO FILE DELLA DIRECTORY
                 model = PirateLightningModule.load_from_checkpoint(fold_model_path)
                 model.eval()
                 
