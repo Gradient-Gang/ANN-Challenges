@@ -2103,9 +2103,12 @@ class FinalPipeline:
 
         print(f"Best trial: {best_trial.number}")
         print(f"Best mean F1: {best_trial.value:.4f}")
-        print(
-            f"Architecture: {best_params.get('MacroArchitecture', 'Unknown')}")
+        print(best_params)
+        # Backward compatibility: assume Autoencoder if not specified (was fixed value before)
+        macroArch = best_params.get('MacroArchitecture', 'Autoencoder')
+        print(f"Architecture: {macroArch}")
         print("-" * 60)
+
 
         # Reconstruct architecture (same as load_best_model)
         class TrialWrapper:
@@ -2123,8 +2126,8 @@ class FinalPipeline:
 
         trial_wrapper = TrialWrapper(best_params)
 
-        includeTestInTrain = best_params.get(
-            "MacroArchitecture") == "Autoencoder"
+        # Use the macroArch variable set above
+        includeTestInTrain = macroArch == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
         # Load training data and prepare for K-fold splits
         # If includeTestInTrain=True (autoencoder), test data will be loaded WITH augmentation for training
@@ -2133,15 +2136,19 @@ class FinalPipeline:
 
         # CRITICAL FIX: When using WindowedModelWrapper, the base model receives windowed sequences
         # So we need to adjust datasetInfo to reflect what the base model actually sees
-        use_windowing = best_params.get("use_windowing", False)
+        use_windowing = best_params.get("use_windowing", True)  # Default True to match training
         if use_windowing:
             window_size = best_params.get("window_size", 10)
-            stride = best_params.get("stride", 5)
+            stride_ratio = best_params.get("stride_ratio", 1.0)
+            stride = int(window_size * stride_ratio)
             datasetInfo["timeSeriesShape"] = (
                 datasetInfo["timeSeriesShape"][0], window_size)
             datasetInfo["use_windowing"] = True
             datasetInfo["window_size"] = window_size
             datasetInfo["stride"] = stride
+
+        # Override use_global_features from trial params to ensure consistency
+        datasetInfo["use_global_features"] = best_params.get("use_global_features", True)
 
         print("Reconstructing architecture...")
         archParams = {}
@@ -2149,7 +2156,7 @@ class FinalPipeline:
         archParams = self.setUpFeedForwardHead(
             trial_wrapper, archParams, datasetInfo)
 
-        macroArch = best_params.get("MacroArchitecture", "Direct")
+        # Use the macroArch variable already set above (defaults to "Autoencoder" for old trials)
         if macroArch == "Autoencoder":
             archParams = self.setUpDecoder(
                 trial_wrapper, archParams, datasetInfo)
@@ -2390,8 +2397,9 @@ class FinalPipeline:
         print("=" * 60)
         print(f"Best trial: {best_trial.number}")
         print(f"Best F1 score: {best_trial.value:.4f}")
-        print(
-            f"Architecture: {best_params.get('MacroArchitecture', 'Unknown')}")
+        # Backward compatibility: assume Autoencoder if not specified (was fixed value before)
+        macroArch = best_params.get('MacroArchitecture', 'Autoencoder')
+        print(f"Architecture: {macroArch}")
         print(
             f"Encoder type: {best_params.get('architectureType', 'Unknown')}")
         print("-" * 60)
@@ -2413,8 +2421,8 @@ class FinalPipeline:
         trial_wrapper = TrialWrapper(best_params)
 
         # Setup data to get dataset info
-        includeTestInTrain = best_params.get(
-            "MacroArchitecture") == "Autoencoder"
+        # Use the macroArch variable set above
+        includeTestInTrain = macroArch == "Autoencoder"
         data_loader = DataModule(params=self.data_params)
         # First load test data if we need it for autoencoder training
         if includeTestInTrain:
@@ -2425,15 +2433,19 @@ class FinalPipeline:
 
         # CRITICAL FIX: When using WindowedModelWrapper, the base model receives windowed sequences
         # So we need to adjust datasetInfo to reflect what the base model actually sees
-        use_windowing = best_params.get("use_windowing", False)
+        use_windowing = best_params.get("use_windowing", True)  # Default True to match training
         if use_windowing:
             window_size = best_params.get("window_size", 10)
-            stride = best_params.get("stride", 5)
+            stride_ratio = best_params.get("stride_ratio", 1.0)
+            stride = int(window_size * stride_ratio)
             datasetInfo["timeSeriesShape"] = (
                 datasetInfo["timeSeriesShape"][0], window_size)
             datasetInfo["use_windowing"] = True
             datasetInfo["window_size"] = window_size
             datasetInfo["stride"] = stride
+
+        # Override use_global_features from trial params to ensure consistency
+        datasetInfo["use_global_features"] = best_params.get("use_global_features", True)
 
         # Reconstruct architecture parameters
         print("Reconstructing architecture...")
@@ -2442,7 +2454,7 @@ class FinalPipeline:
         archParams = self.setUpFeedForwardHead(
             trial_wrapper, archParams, datasetInfo)
 
-        macroArch = best_params.get("MacroArchitecture", "Direct")
+        # Use the macroArch variable already set above (defaults to "Autoencoder" for old trials)
         if macroArch == "Autoencoder":
             archParams = self.setUpDecoder(
                 trial_wrapper, archParams, datasetInfo)
