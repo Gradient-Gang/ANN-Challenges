@@ -27,6 +27,8 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import time
 from datetime import datetime
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import seaborn as sns
 
 warnings.filterwarnings("ignore")
 
@@ -2752,4 +2754,124 @@ class FinalPipeline:
         print(f"✓ Submission generated: {path}")
         print(f"Total predictions: {len(submission_df)}")
 
+        # Generate confusion matrix on validation set
+        print("\nGenerating confusion matrix on validation set...")
+        self._plot_confusion_matrix(time_now)
+
         return submission_df
+
+    def _plot_confusion_matrix(self, timestamp):
+        """
+        Plot confusion matrix on the full training set using K-fold cross-validation predictions.
+        
+        Args:
+            timestamp: Timestamp string for filename
+        """
+        print("  Computing cross-validation predictions on full training set...")
+        
+        # Setup data for K-fold
+        self.dataloader.setup(stage="fit", includeTestInTrain=False)
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Get all training data indices and predictions
+        all_preds = []
+        all_labels = []
+        
+        n_folds = self.data_params["n_folds"]
+        
+        # For each fold, get predictions on its validation set
+        for fold_idx in range(n_folds):
+            print(f"  Processing fold {fold_idx + 1}/{n_folds}...")
+            
+            # Setup this fold
+            self.dataloader.setup_fold(fold_idx, include_test_in_train=False)
+            val_loader = self.dataloader.val_dataloader()
+            
+            # Get the corresponding fold model from ensemble
+            if hasattr(self.best_model, 'models') and len(self.best_model.models) > fold_idx:
+                fold_model = self.best_model.models[fold_idx]
+            else:
+                # If not an ensemble, use the single model
+                fold_model = self.best_model
+            
+            fold_model.eval()
+            
+            # Get predictions for this fold's validation set
+            with torch.no_grad():
+                for batch in val_loader:
+                    (time_series, global_features), labels = batch
+                    time_series = time_series.to(device)
+                    global_features = global_features.to(device)
+                    labels = labels.to(device)
+                    
+                    outputs = fold_model((time_series, global_features))
+                    logits = outputs[0] if isinstance(outputs, tuple) else outputs
+                    preds = torch.argmax(logits, dim=1)
+                    
+                    all_preds.extend(preds.cpu().numpy())
+                    all_labels.extend(labels.cpu().numpy())
+        
+        all_preds = np.array(all_preds)
+        all_labels = np.array(all_labels)
+        
+        print(f"  Total samples evaluated: {len(all_preds)}")
+        
+        # Compute confusion matrix
+        cm = confusion_matrix(all_labels, all_preds)
+        
+        # Plot confusion matrix
+        fig, ax = plt.subplots(figsize=(10, 8))
+        class_names = ["no_pain", "low_pain", "high_pain"]
+        
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+        disp.plot(ax=ax, cmap='Blues', values_format='d')
+        
+        plt.title('Confusion Matrix - Cross-Validation (Full Training Set)', fontsize=16, pad=20)
+        plt.tight_layout()
+        
+        # Save confusion matrix
+        cm_path = os.path.join(self.submission_folder, f"confusion_matrix_{timestamp}.png")
+        plt.savefig(cm_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        print(f"✓ Confusion matrix saved: {cm_path}")
+        
+        # Create and print classification metrics table
+        print("\nCross-Validation Metrics (Full Training Set):")
+        accuracy = np.trace(cm) / np.sum(cm)
+        
+        # Calculate per-class metrics
+        metrics_data = []
+        for i, class_name in enumerate(class_names):
+            if cm[:, i].sum() > 0:
+                precision = cm[i, i] / cm[:, i].sum()
+                recall = cm[i, i] / cm[i, :].sum() if cm[i, :].sum() > 0 else 0
+                f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+                support = cm[i, :].sum()
+                metrics_data.append({
+                    'Class': class_name,
+                    'Precision': f'{precision:.4f}',
+                    'Recall': f'{recall:.4f}',
+                    'F1-Score': f'{f1:.4f}',
+                    'Support': int(support)
+                })
+        
+        # Create DataFrame and print as table
+        import pandas as pd
+        metrics_df = pd.DataFrame(metrics_data)
+        
+        print(f"\nOverall Accuracy: {accuracy:.4f}")
+        print("\nPer-Class Metrics:")
+        print(metrics_df.to_string(index=False))
+        
+        # Save metrics table as CSV
+        metrics_path = os.path.join(self.submission_folder, f"cv_metrics_{timestamp}.csv")
+        metrics_df.to_csv(metrics_path, index=False)
+        print(f"\n✓ Metrics table saved: {metrics_path}")
+        
+        # Also save the raw confusion matrix
+        cm_csv_path = os.path.join(self.submission_folder, f"confusion_matrix_{timestamp}.csv")
+        cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
+        cm_df.to_csv(cm_csv_path)
+        print(f"✓ Confusion matrix CSV saved: {cm_csv_path}")
