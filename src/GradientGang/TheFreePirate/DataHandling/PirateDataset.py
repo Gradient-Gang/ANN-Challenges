@@ -53,7 +53,18 @@ class PirateDataset(Dataset):
 
     def __getitem__(self, idx):
         return (
-            self.timeSeriesTensor[idx],  # [numIdx, numWindows, numFeatures, timesteps]
-            self.globalFeaturesTensor[idx],  # [numIdx, numGlobalFeatures]
+            (
+                self.timeSeriesTensor[
+                    idx
+                ],  # [numIdx, numWindows, numFeatures, timesteps]
+                self.globalFeaturesTensor[idx],  # [numIdx, numGlobalFeatures]
+            ),
             self.labelsTensor[idx],  # [numIdx]
         )
+
+    def getShape(self):
+        return {
+            "timeSeriesShape": self.timeSeriesTensor.shape,
+            "globalFeaturesShape": self.globalFeaturesTensor.shape,
+            "labelsShape": self.labelsTensor.shape,
+        }
