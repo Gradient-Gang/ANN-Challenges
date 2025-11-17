@@ -1,6 +1,7 @@
 import pytorch_lightning
 import torch
-from .Models.FeedForwardModel import FeedForwardModel
+from .Models.FeedForwardModel import FeedForwardModel, FeedForwardAutoencoder
+from .Models.MultiScaleCNN1DModel import MultiscaleInceptionAutoencoder1D
 from .AggregationStrategies import (
     AverageLogitsAggregationStrategy,
     MajorityVotingAggregationStrategy,
@@ -61,13 +62,10 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         # Setup models
         self.modelSetup(params)
 
-    def modelSetup(self, params: dict):
-        paramsName = "modelParams in LightningModule.modelSetup"
+    def setupFFTimeSeriesAutoencoder(self, params: dict):
+        paramsName = "modelParams in LightningModule.setupFFTimeSeriesAutoencoder"
 
         # EXTRACT MODEL CONFIGURATIONS
-        self.activationFunction = getRaise(params, "activationFunction", paramsName)
-        # Time Series
-        self.timeSeriesShape = self.datasetInfo["shapes"]["train"]["timeSeriesShape"]
         self.timeSeriesEmbeddingDim = getRaise(
             params, "timeSeriesEmbeddingDim", paramsName
         )
@@ -75,6 +73,66 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
             params, "timeSeriesEncoderNumLayers", paramsName
         )
         self.timeSeriesDropout = getRaise(params, "timeSeriesDropout", paramsName)
+
+        # SETUP AUTOENCODER
+        # Setup time series encoder
+        timeSeriesDim = self.timeSeriesShape[-1] * self.timeSeriesShape[-2]
+        self.timeSeriesAutoencoder = FeedForwardAutoencoder.linearlyInterpolate(
+            inputDim=timeSeriesDim,
+            embeddingDim=self.timeSeriesEmbeddingDim,
+            nLayers=self.timeSeriesEncoderNumLayers,
+            activation=self.activationFunction,
+            dropoutProb=self.timeSeriesDropout,
+        )
+        self.timeSeriesEncoder = self.timeSeriesAutoencoder.encoder
+        self.timeSeriesDecoder = self.timeSeriesAutoencoder.decoder
+
+    def setupMultiScaleAutoencoder(self, params: dict):
+        paramsName = "modelParams in LightningModule.setupMultiScaleAutoencoder"
+
+        # EXTRACT MODEL CONFIGURATIONS
+        self.timeSeriesEmbeddingDim = getRaise(
+            params, "timeSeriesEmbeddingDim", paramsName
+        )
+        self.numLayers = getRaise(params, "timeSeriesInceptionNumLayers", paramsName)
+        self.baseChannels = getRaise(
+            params, "timeSeriesInceptionBaseChannels", paramsName
+        )
+        self.kernelSizes = getRaise(
+            params, "timeSeriesInceptionKernelSizes", paramsName
+        )
+
+        # SETUP AUTOENCODER
+        timeSeriesChannels = self.timeSeriesShape[-1]
+        timeSeriesLength = self.timeSeriesShape[-2]
+        print(timeSeriesChannels, timeSeriesLength)
+        self.timeSeriesAutoencoder = MultiscaleInceptionAutoencoder1D(
+            in_channels=timeSeriesChannels,
+            latent_dim=self.timeSeriesEmbeddingDim,
+            seq_length=timeSeriesLength,
+            num_layers=self.numLayers,
+            base_channels=self.baseChannels,
+            kernel_sizes=self.kernelSizes,
+        )
+        self.timeSeriesEncoder = self.timeSeriesAutoencoder.encoder
+        self.timeSeriesDecoder = self.timeSeriesAutoencoder.decoder
+
+    def modelSetup(self, params: dict):
+        paramsName = "modelParams in LightningModule.modelSetup"
+
+        # EXTRACT MODEL CONFIGURATIONS
+        self.timeSeriesArchitectureType = getRaise(
+            params, "timeSeriesArchitectureType", paramsName
+        )
+
+        self.activationFunction = getRaise(params, "activationFunction", paramsName)
+
+        # Time Series
+        self.timeSeriesShape = self.datasetInfo["shapes"]["train"]["timeSeriesShape"]
+        if self.timeSeriesArchitectureType == "feedForward":
+            self.setupFFTimeSeriesAutoencoder(params)
+        elif self.timeSeriesArchitectureType == "multiScaleCNN1D":
+            self.setupMultiScaleAutoencoder(params)
 
         # Predictor
         self.predictorNumLayers = getRaise(params, "predictorNumLayers", paramsName)
@@ -105,15 +163,6 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
             self.globalFeaturesEmbeddingDim = 0
 
         # SETUP MODELS
-        # Setup time series encoder
-        timeSeriesDim = self.timeSeriesShape[-1] * self.timeSeriesShape[-2]
-        self.timeSeriesEncoder = FeedForwardModel.linearlyInterpolateLayers(
-            inputDim=timeSeriesDim,
-            outputDim=self.timeSeriesEmbeddingDim,
-            nLayers=self.timeSeriesEncoderNumLayers,
-            dropoutProb=self.timeSeriesDropout,
-            activation=self.activationFunction,
-        )
 
         # Setup classifier
         self.classifier = FeedForwardModel.linearlyInterpolateLayers(
@@ -123,15 +172,6 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
             dropoutProb=self.predictorDropout,
             activation=self.activationFunction,
             logitToFix=self.predictorLogitToFix,
-        )
-
-        # Setup time series decoder
-        self.timeSeriesDecoder = FeedForwardModel.linearlyInterpolateLayers(
-            inputDim=self.timeSeriesEmbeddingDim,
-            outputDim=timeSeriesDim,
-            nLayers=self.timeSeriesEncoderNumLayers,
-            dropoutProb=self.timeSeriesDropout,
-            activation=self.activationFunction,
         )
 
         if not self.useGlobalFeatures:
@@ -208,12 +248,22 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
             globalFeaturesReconstructed,
         )
 
+    def reshapeTimeSeries(self, timeSeries):
+        batchSize, nWindows, windowSize, nFeatures = timeSeries.shape
+        if self.timeSeriesArchitectureType == "multiScaleCNN1D":
+            # For CNN1D, reshape to (batchSize * nWindows, windowSize, nFeatures)
+            timeSeries = timeSeries.view(batchSize * nWindows, windowSize, nFeatures)
+        else:
+            timeSeries = timeSeries.view(batchSize * nWindows, windowSize * nFeatures)
+
+        return timeSeries
+
     def forward(self, x):
         timeSeries, globalFeatures = x
 
         # Reshape time Series
         batchSize, nWindows, windowSize, nFeatures = timeSeries.shape
-        timeSeries = timeSeries.view(batchSize * nWindows, windowSize * nFeatures)
+        timeSeries = self.reshapeTimeSeries(timeSeries)
 
         # Encode inputs
         timeSeriesEncoded, globalFeaturesEncoded, combinedEmbedding = self.encode(
@@ -226,6 +276,7 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
         )  # (batchSize * nWindows, nClasses)
 
         # Aggregate predictions back to original samples
+
         predictions = predictions.view(
             batchSize, nWindows, -1
         )  # (batchSize, nWindows, nClasses)
@@ -259,7 +310,7 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
 
         # Reshape Time Series
         batchSize, nWindows, windowSize, nFeatures = timeSeries.shape
-        timeSeries = timeSeries.view(batchSize * nWindows, windowSize * nFeatures)
+        timeSeries = self.reshapeTimeSeries(timeSeries)
 
         # Autoencoder Pass
         (
@@ -335,7 +386,7 @@ class PirateLightningModule(pytorch_lightning.LightningModule):
 
         # Reshape Time Series
         batchSize, nWindows, windowSize, nFeatures = timeSeries.shape
-        timeSeries = timeSeries.view(batchSize * nWindows, windowSize * nFeatures)
+        timeSeries = self.reshapeTimeSeries(timeSeries)
 
         # Autoencoder Pass
         (
