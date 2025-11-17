@@ -3,7 +3,7 @@
 \vspace{-10pt}
 This project addresses the first challenge of the \textit{Artificial Neural Networks and Deep Learning} course (A.Y.\ 2025--2026), which focuses on \emph{multivariate time series} classification. The task consists of predicting pain intensity levels from a collection of temporal signals.
 
-The dataset is composed of $n$ time series of fixed temporal length $T = 160$. For each sample $i \in \{1,\dots,n\}$, the raw input is a tensor $X_i \in \mathbf{R}^{F \times T},$ where $F = 38$ denotes the total number of feature channels. These channels include: 4 survey-derived channels, 31 biomechanical channels, and 3 global features. Each multivariate time series has a categorical label $y_i \in \{0,1,2\},$ corresponding to \emph{No Pain}, \emph{Low Pain}, and \emph{High Pain} so the goal is to predict the labels of unseen data.
+The dataset is composed of $n$ time series of fixed temporal length $T = 160$. For each sample $i \in \{1,\dots,n\}$, the raw input is a tensor $X_i \in \mathbf{R}^{F \times T},$ where $F = 38$ denotes the total number of feature channels. These channels include: 4 survey-derived channels, 31 biomechanical channels, and 3 global features. Each multivariate time series has a categorical label $y_i \in \{0,1,2\},$ corresponding to \emph{No Pain}, \emph{Low Pain}, and \emph{High Pain} and the goal is to predict the labels of unseen data.
 %to learn $f_\theta : \mathbf{R}^{F \times T} \to \{0,1,2\}$. 
 %The challenge requires the development of a neural network where we need to capture both short- and long-range temporal dependencies while maximizing the F1-score. 
 

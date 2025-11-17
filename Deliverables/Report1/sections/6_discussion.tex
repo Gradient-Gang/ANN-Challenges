@@ -1,13 +1,13 @@
-\vspace{-20pt}
-\section{Discussion}
-\vspace{-10pt}
+
+%\section{Discussion}
+%\vspace{-10pt}
 %The experimentation phase highlights that the most promising architecture is the autoencoder, thanks to its self-supervised properties, while at the micro-architecture level MultiScaleCNNs and recurrent layers both perform well because they capture local and multiscale temporal dependencies.
-The experimentation phase shows that the Autoencoder consistently outperforms the Direct macro-architecture, benefiting from the added stability provided by the reconstruction loss (in addition to the prediction loss).
-At the micro-architecture level, both MultiScaleCNNs and recurrent layers perform well, outperforming the Conv1D architecture because of its lower representational capacity.
-We applied data augmentation (jittering, scaling, time warping, and windowing), which improved robustness but was limited by the small dataset. Experiments showed better performance with smaller windows, suggesting minimal temporal patterns. Flattening the data and using a linear feed-forward encoder achieved comparable results to more complex architectures.
-Adding global features (such as mean, variance, ...) to the dataset did not substantially improve the prediction performance, the minority classes (especially High Pain) remained difficult to classify despite the usage of class-weighting strategies.
-The use of learning-rate schedulers reduced the sensitivity to the initial learning rate. Among the tested schedulers, Reduce-on-Plateau achieved the best performance, because it reacts to actual model performance instead of following a fixed schedule.
-Overall, the system demonstrates solid generalization within the competition constraints, yet performance bottlenecks appear to be primarily linked to the limited expressiveness of the data rather than architectural insufficiency.
+%The experimentation phase shows that the Autoencoder consistently outperforms the Direct macro-architecture, benefiting from the added stability provided by the reconstruction loss (in addition to the prediction loss).
+%At the micro-architecture level, both MultiScaleCNNs and recurrent layers perform well, outperforming the Conv1D architecture because of its lower representational capacity.
+%We applied data augmentation (jittering, scaling, time warping, and windowing), which improved robustness but was limited by the small dataset. Experiments showed better performance with smaller windows, suggesting minimal temporal patterns. Flattening the data and using a linear feed-forward encoder achieved comparable results to more complex architectures.
+%Adding global features (such as mean, variance, ...) to the dataset did not substantially improve the prediction performance, the minority classes (especially High Pain) remained difficult to classify despite the usage of class-weighting strategies.
+%The use of learning-rate schedulers reduced the sensitivity to the initial learning rate. Among the tested schedulers, Reduce-on-Plateau achieved the best performance, because it reacts to actual model performance instead of following a fixed schedule.
+%Overall, the system demonstrates solid generalization within the competition constraints, yet performance bottlenecks appear to be primarily linked to the limited expressiveness of the data rather than architectural insufficiency.
 
 
 

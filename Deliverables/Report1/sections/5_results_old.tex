@@ -1,0 +1,30 @@
+The final architecture selected by the automated pipeline is an \textbf{Autoencoder with a MultiScaleCNN encoder}, combined with a two-layer feedforward classification head and windowed inference. This configuration was identified as the most effective during the Optuna-driven hyperparameter search, achieving  $F1=0.9598$ across folds.
+
+%\subsection{Cross-Validation Performance}
+
+%Because no checkpoints were available for the best trial, all five folds were retrained using the reconstructed architecture. The resulting fold-level F1 scores were:\[\{0.9632,\; 0.9418,\; 0.9270,\; 0.9451,\; 0.9359\},\]leading to an average cross-validation macro F1 of \textbf{0.9426}.  A performance-weighted ensemble was then constructed, resulting in an estimated ensemble F1 of \textbf{0.9427}.
+
+%Using cross-validation predictions on the full training set, the model achieves an overall accuracy of \textbf{0.9138}. Per-class metrics are reported in Table~\ref{tab:cvmetrics}. The system performs strongly on the majority class (No Pain), maintains good performance on Low Pain, and shows reasonable recall on High Pain despite severe class imbalance.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Class} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{Support} \\
+\midrule
+No Pain  & 0.9606 & 0.9530 & 0.9568 & 511 \\
+Low Pain & 0.8681 & 0.8404 & 0.8541 & 94 \\
+High Pain & 0.6032 & 0.6786 & 0.6387 & 56 \\
+\bottomrule
+\end{tabular}
+\caption{Cross-validation metrics computed on the full training set using the Autoencoder + MultiScaleCNN architecture.}
+\label{tab:cvmetrics}
+\end{table}
+
+The confusion matrix illustrates these trends, with most misclassifications occurring between Low Pain and High Pain, while the No Pain class is recognized with high reliability.
+
+\subsection{Test Set Performance}
+
+Using the performance-weighted 5-fold ensemble, we generated the final predictions for the test set. The resulting test macro F1 score is \textbf{0.9480}, representing the best result obtained throughout the competition.
+
+This confirms that the combination of an \textbf{Autoencoder with a MultiScaleCNN encoder}, windowed inference, and light temporal augmentations provides strong generalization capabilities for multivariate time-series pain classification, even under limited data and class imbalance.
