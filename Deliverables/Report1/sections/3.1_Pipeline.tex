@@ -1,4 +1,5 @@
-\noindent \textbf{3.2 Architectures}
+\subsection{Architectures}
+\vspace{-10pt}
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{Deliverables/Report1/img/Architectures.png}
@@ -10,13 +11,14 @@
 %Supported macroarchitectures are Direct ad Autoencoder.
 %The encoder can be recurrent (RNN/LSTM/GRU), Conv1D (temporal convolutions with pooling) or MultiScaleCNN (parallel convolutional branches at multiple receptive fields). A feed forward network performs the classification. If the macroarchitecture is an autoencoder, the decoder is built symmetrically wrt the decoder.
 \noindent In our package the supported macro-architectures are Direct (Encoder + FFn) and Autoencoder (AE + FFn).
-The encoder may be RNN/LSTM/GRU, Conv1D (temporal convolutions with pooling), or MultiScaleCNN (parallel convolutional branches at multiple receptive fields). If enabled, the decoder mirrors the encoder. Finally a feed-forward head performs classification.
+The encoder may be RNN/LSTM/GRU, Conv1D (temporal convolutions with pooling), or MultiScaleCNN (parallel convolutional branches at multiple receptive fields). If enabled, the decoder mirrors the encoder. Finally, a feed-forward head performs classification.
 
 
-We firstly considered a direct architecture as a baseline presented during the course, and then we have added the possibity to use the AE to increase the stability of the embeddings thanks to the reconstruction loss. In addition, the AE allows us to include the unlabeled test data to help decreasing the reconstruction loss while keeping untouched the prediction loss. We chose to do that since, as stated in \autoref{sec:problem}, the train data are few compared to the test data.  
+We firstly considered the direct architecture as a baseline presented during the course, and then we have added the possibity to use the AE to increase the stability of the embeddings thanks to the reconstruction loss. In addition, the AE allows us to include the unlabeled test data to help decreasing the reconstruction loss while keeping untouched the prediction loss. We chose to do that since, as stated in \autoref{sec:problem}, the train data are few compared to the test data.  
 
+\subsection{Pipeline}
+\vspace{-10pt}
 
-\noindent \textbf{3.3 Pipeline}
 
 \noindent Once the dataset is preprocessed, we setup the Optuna study, connecting all the computational resources (e.g. local, Kaggle and Colab GPUs) to the same experiment in the Database.
 The optimization routine executes $n_{\mathrm{trials}}$. For each trial, Optuna samples an architecture/hyperparameter configuration among the implemented ones, using the \href{https://optuna.readthedocs.io/en/stable/reference/samplers/generated/optuna.samplers.TPESampler.html}{TPE sampler} and \href{https://optuna.readthedocs.io/en/stable/reference/generated/optuna.pruners.MedianPruner.html}{Median Pruner}.

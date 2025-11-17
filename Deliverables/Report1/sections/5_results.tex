@@ -1,7 +1,7 @@
 \vspace{-15pt}
 \section{Results and Discussions}
 \vspace{-10pt}
-The model that achieved the best performance on the leaderboard was an Autoencoder with Multiscale CNN (inspired by Inception \cite{DBLP:journals/corr/SzegedyLJSRAEVR14}) acheiving $F1Score = 0.9480$ . 
+The model that achieved the best performance on the leaderboard was an Autoencoder with Multiscale CNN (inspired by Inception \cite{DBLP:journals/corr/SzegedyLJSRAEVR14}) acheiving $F1Score = 0.9480$.
 
 More in general, the experimental phase firstly shows that the Autoencoder consistently outperforms the Direct macro-architecture, benefiting from the added stability provided by the reconstruction loss and the bigger quantity of data. At the micro-architecture level, both MultiScaleCNNs and recurrent layers perform well, outperforming the Conv1D in the most of the cases. This is caused because standard Conv1D modules rely on fixed-size kernel and struggle to represent relationships at different frequencies.
 
