@@ -41,7 +41,7 @@ phi = {
 
 
 class OptunaOptimizer:
-    database = "REMOVED_KEY"
+    database = "path_to/optuna_database.db"
 
     class MockTrial:
         def __init__(self, params, study):
