@@ -4,7 +4,16 @@
 We presented our solution for this classification task. 
 Although the software package is designed to be general, this generality results in a large hyperparameter search space. Given the time constraints and the associated curse of dimensionality, exhaustive exploration was not feasible.
 
-Although we achieved a high test F1-score (0.9480), we expect that with more time for hyperparameter exploration the performance could improve further. Future work may include integrating attention-based encoders, enlarging the dataset, or augmenting it with synthetic expert-generated trajectories to better handle underrepresented classes.
+The majority of our efforts have been spent in the development of a generalized infrastructure to perform efficient and large scale hyperparameter optimization. The main finding of this project is that architectures hyperparameters are essential but soon show diminishing returns. Our biggest gains have been achieved by implementing new forms of augmentations and their hyperparameters are consistently show the highest importance. 
+
+Despite this, the tool we have developed can be a formidable ally, given appropriate time constraint, to perform structured ablation study on proposed solutions.
+
+To further improve our final performance much can be systematically tried, ranging from broader and better calibrated augmentation, to new architecture (attention based models being next in line) to learning optimizations.
+Although we achieved a high test F1-score (0.9480), we expect that with more time for hyperparameter exploration the performance could improve further.
+
+Future work may include integrating attention-based encoders, enlarging the dataset, or augmenting it with synthetic expert-generated trajectories to better handle underrepresented classes.
+
+\noindent [\href{https://github.com/Gradient-Gang/ANN-Challenges}{CODEBASE here}] 
 
 
 %This work present a complete pipeline for pain-level classification from multivariate time series, integrating preprocessing, feature extraction, an adaptive architecture creation, extensive hyperparameter optimization, and robust evaluation via K-fold cross-validation.

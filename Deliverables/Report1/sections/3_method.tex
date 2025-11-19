@@ -1,7 +1,7 @@
 \vspace{-10pt}
 \section{Methods}
 \vspace{-10pt}
-We aimed to build a software package, as generalized as possible, in line with the SOTA MLOPS frameworks. We rely for the experiments on a fully automated pipeline that could be used to solve a general time-series classification problem.
+We aimed to build a software package, as generalized as possible, in line with the SOTA MLOPS frameworks. We built a fully automated pipeline that could be used to solve a general time-series classification problem.
 In our pipeline, \href{https://optuna.org/}{Optuna} manages the architecture and hyperparameter optimization, relying on a persistent \href{https://supabase.com/}{database} and allowing to merge heterogeneous computational resources in the same search experiment.
 \vspace{-10pt}
 \begin{figure}[H]
@@ -20,11 +20,11 @@ In our pipeline, \href{https://optuna.org/}{Optuna} manages the architecture and
 During the loading, each sample is $X_i = \{ x_i(t) \}_{t=1}^T \in \mathbb{R}^{F \times T}$. Firstly we map physical informations to a binary pirate–indicator $\text{isPirate} \in \{0,1\}$ and we drop the features we mentioned in \autoref{sec:problem}. After that, all continuous features are standardized using Z-score normalization and
 %, i.e. $\hat{x}_{i,f}(t) = \frac{x_{i,f}(t) - \mu_f}{\sigma_f}.$ 
 %where \(\mu_f\) and \(\sigma_f\) are the mean and standard deviation.
-finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$, including statistical features (mean, variance, minimum, maximum, range), domain-specific features (aggregated pain–survey and joint–activity statistics) and PCA (applied independently to each trajectory $x_{i,f}$ keeping the 95\% of the explained variance Appendix~\ref{app:pca}).
+finally, global feature extraction computes a fixed-length feature vector $g_i \in \mathbb{R}^D$, including statistical features (mean, variance, minimum, maximum, range, trend), domain-specific features (average, variance and divergence of the pain–survey) and PCA (applied independently to each trajectory $x_{i,f}$ keeping the 95\% of the explained variance Appendix~\ref{app:pca}).
 
-Global features are refined through a multi-stage selection procedure, including Random Forest, Mutual Information scoring and Lasso regression. The final subset of features is defined as the intersection of the top-ranked features across methods. 
+Global features are refined through a multi-stage selection procedure, including Random Forest Importance, Mutual Information scoring and Lasso regression. The final subset of features is defined as the intersection of the top-ranked features across methods. 
 Additionally, since in the train dataset the 'no\_pain' label is dominant, to address class imbalance the class weights are computed using the inverse-frequency scheme: $w_c = \frac{N}{C \, N_c}$.
 
-After we saw that the first experiments had relatively bad performances, we decided to add to the pre-processing a module that performs data augmentation. We implemented time warping, jittering, scaling, offset and windowing.
+After we saw that the first experiments' performance translated poorly to the test evaluation, we decided to add a data augmentation module. We implemented time warping, jittering, scaling, offset and windowing.
 Windowing was not just used as data augmentation, but also to create an ensemble model over the windows for each sample.
 
