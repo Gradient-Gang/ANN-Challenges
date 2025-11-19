@@ -7,9 +7,10 @@
 
 This project provides a modular, scalable pipeline for deep learning workflows, featuring automated hyperparameter optimization, multimodal data processing, and flexible architecture design using PyTorch Lightning.
 
-## 📄 Report
+## 📄 Report and 🔗 GitHub Repo
 
 [📖 View Full Report (PDF)](Deliverables/Report1/ANN_Challenges.pdf)
+[🔗 Gradient-Gang GitHub](https://github.com/Gradient-Gang/ANN-Challenges)
 
 ---
 
